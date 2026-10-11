@@ -255,6 +255,7 @@ public sealed partial class PlayerViewModel : ObservableObject, IDisposable
         _isClosingPlayer = false;
         VersionChoices.Clear();
         Current = result;
+        _services.Entertainment.BeginPlayback(result);
         _sequence = sequence;
         var identity = MediaIdentity.Parse(result.Entry.Name);
         Title = Path.GetFileNameWithoutExtension(result.Entry.Name);
@@ -354,8 +355,7 @@ public sealed partial class PlayerViewModel : ObservableObject, IDisposable
     private void OnFinished()
     {
         if (Current is not { } finished) return;
-        var (url, duration) = (finished.Entry.Url, Duration);
-        _ = SaveToIndexAsync(url, duration, duration);
+        _ = SaveToIndexAsync(finished, Duration, Duration);
         PlaybackEnded?.Invoke(finished);
         if (Repeat)
         {
@@ -406,7 +406,8 @@ public sealed partial class PlayerViewModel : ObservableObject, IDisposable
     {
         _lastSavedAt = Now;
         if (Current is not { } media || Duration <= 0 || Position <= 0 || State == PlayerState.Ended) return;
-        var (url, position, duration) = (media.Entry.Url, Position, Duration);
+        var (position, duration) = (Position, Duration);
+        var recordingVersion = _services.Entertainment.PlaybackRecordingVersion(media);
         try
         {
             PositionSaved?.Invoke(media, position, duration, persist);
@@ -415,21 +416,25 @@ public sealed partial class PlayerViewModel : ObservableObject, IDisposable
         {
             // History is a convenience; never interrupt playback for it.
         }
-        var save = SaveToIndexAsync(url, position, duration);
+        var save = SaveToIndexAsync(media, position, duration, recordingVersion);
         if (wait is { } timeout) save.Wait(timeout);
     }
 
     /// Resume points are a convenience: index failures are ignored and never reach the UI thread.
-    private Task SaveToIndexAsync(Uri url, double position, double duration) => Task.Run(() =>
+    private Task SaveToIndexAsync(GlobalSearchResult media, double position, double duration, long? recordingVersion = null)
     {
-        try
+        var version = recordingVersion ?? _services.Entertainment.PlaybackRecordingVersion(media);
+        return Task.Run(() =>
         {
-            _services.Index.SavePlaybackPosition(url, position, duration);
-        }
-        catch (Exception)
-        {
-        }
-    });
+            try
+            {
+                _services.Entertainment.SavePlaybackPosition(media, position, duration, version);
+            }
+            catch (Exception)
+            {
+            }
+        });
+    }
 
     // ---------- Tracks ----------
 

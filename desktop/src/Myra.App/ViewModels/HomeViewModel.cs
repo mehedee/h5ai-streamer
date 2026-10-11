@@ -44,6 +44,7 @@ public sealed partial class HomeViewModel : ObservableObject
             OnPropertyChanged(nameof(ErrorMessage));
             OnPropertyChanged(nameof(IsEnriching));
             OnPropertyChanged(nameof(UpdateMetadataLabel));
+            ClearContinueWatchingCommand.NotifyCanExecuteChanged();
             // Progress is recorded every 10 s and enrichment changes one title at a time: coalesce them.
             Schedule(StoreChangeDelay);
         });
@@ -111,6 +112,9 @@ public sealed partial class HomeViewModel : ObservableObject
     public string TitleCountText => $"{TitleCount.ToString("N0", CultureInfo.CurrentCulture)} titles";
     public string Attribution => HomeProjection.Attribution;
     public bool HasQuery => Query.Length > 0;
+    public bool HasNoSearchResults => HasTitles && _preparedFilter == Filter && Filter.Query.Length > 0 && Filtered.Count == 0;
+    private bool CanClearContinueWatching() => !Store.IsClearingContinueWatching && Store.CanWrite
+        && Store.Catalogue.Any(t => t.ResumeVersion is not null && !Store.Personal.Watched.Contains(t.Id));
 
     // Combo boxes can briefly clear their selection (null) while their items are replaced; null means "All".
     public HomeCatalogueFilter Filter => new(Query.Trim(), Genre?.Value ?? "", Language?.Value ?? "", Year?.Value ?? "", Source?.Value ?? "",
@@ -124,6 +128,7 @@ public sealed partial class HomeViewModel : ObservableObject
     partial void OnQueryChanged(string value)
     {
         OnPropertyChanged(nameof(HasQuery));
+        OnPropertyChanged(nameof(HasNoSearchResults));
         OnPropertyChanged(nameof(CanPick));
         Schedule();
     }
@@ -141,12 +146,14 @@ public sealed partial class HomeViewModel : ObservableObject
         if (!_applying && value is not null)
         {
             OnPropertyChanged(nameof(CanPick));
+            OnPropertyChanged(nameof(HasNoSearchResults));
             Schedule();
         }
     }
     partial void OnHideWatchedChanged(bool value)
     {
         OnPropertyChanged(nameof(CanPick));
+        OnPropertyChanged(nameof(HasNoSearchResults));
         Schedule();
     }
     partial void OnTitleCountChanged(int value) => OnPropertyChanged(nameof(TitleCountText));
@@ -231,10 +238,11 @@ public sealed partial class HomeViewModel : ObservableObject
         SetSelections(genre, language, year, source);
         _applying = false;
         OnPropertyChanged(nameof(CanPick));
+        OnPropertyChanged(nameof(HasNoSearchResults));
         if (revision == _appliedRevision && filter == _appliedFilter) return;
         _appliedRevision = revision;
         _appliedFilter = filter;
-        Sync(Shelves, shelves);
+        Sync(Shelves, shelves.Where(s => s.Count > 0 || filter.Query.Length == 0).ToList());
         Sync(PersonalShelves, shelves.Where(s => s.Shelf.Kind is HomeShelfKind.Watchlist or HomeShelfKind.Collection).ToList(), expanded: true);
     }
 
@@ -289,6 +297,15 @@ public sealed partial class HomeViewModel : ObservableObject
     }
 
     [RelayCommand] private void ClearQuery() => Query = "";
+
+    [RelayCommand(CanExecute = nameof(CanClearContinueWatching))]
+    private async Task ClearContinueWatchingAsync()
+    {
+        if (_main.Confirm is not { } confirm || !await confirm(
+            "Clear Continue Watching? Remove unfinished resume entries from all sources? "
+            + "Your files, watched status, watchlist and collections will not be deleted. Current playback will continue.")) return;
+        await Store.ClearContinueWatchingAsync();
+    }
 
     [RelayCommand]
     private async Task PickSomethingAsync()
@@ -386,6 +403,7 @@ public sealed partial class HomeShelfViewModel(HomeViewModel home, string key) :
     public bool IsEmpty => Count == 0;
     public bool HasCards => Count > 0;
     public bool CanExpand => Count > HomeShelf.VisibleLimit;
+    public bool IsContinueWatching => _cards?.Shelf.Kind == HomeShelfKind.ContinueWatching;
     public string ShowAllLabel => IsExpanded ? "Show fewer" : "Show all";
 
     public void Update(HomeShelfCards cards)
@@ -399,6 +417,7 @@ public sealed partial class HomeShelfViewModel(HomeViewModel home, string key) :
         OnPropertyChanged(nameof(IsEmpty));
         OnPropertyChanged(nameof(HasCards));
         OnPropertyChanged(nameof(CanExpand));
+        OnPropertyChanged(nameof(IsContinueWatching));
         Fill();
     }
 

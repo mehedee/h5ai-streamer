@@ -6,10 +6,12 @@
              x:DataType="vm:HomeShelfViewModel">
   <!-- One Home row of poster cards (macOS HomeView.shelf + EntertainmentCard). -->
   <StackPanel Spacing="8">
-    <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="10">
+    <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="10">
       <TextBlock Text="{Binding Name}" Classes="title" />
       <TextBlock Grid.Column="1" Text="{Binding Count}" Opacity="0.6" FontSize="18" VerticalAlignment="Bottom" Margin="0,0,0,2" />
-      <Button Grid.Column="3" Content="{Binding ShowAllLabel}" FontSize="12" IsVisible="{Binding CanExpand}"
+      <Button Grid.Column="3" Content="Clear" FontSize="12" IsVisible="{Binding IsContinueWatching}"
+              AutomationProperties.Name="Clear Continue Watching" Command="{Binding Home.ClearContinueWatchingCommand}" />
+      <Button Grid.Column="4" Content="{Binding ShowAllLabel}" FontSize="12" IsVisible="{Binding CanExpand}"
               Command="{Binding ToggleExpandedCommand}" />
     </Grid>
     <TextBlock Text="{Binding Subtitle}" Classes="caption" />

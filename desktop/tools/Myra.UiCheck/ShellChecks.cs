@@ -103,6 +103,68 @@ internal static class ShellChecks
         vm.Home.Query = "arriv";
         await pump(() => !vm.Home.IsPreparing && vm.Home.Filtered.Count == 1, 5000);
         check(vm.Home.Filtered.Count == 1 && vm.Home.Filtered[0].DisplayName.Contains("Arrival"), "Home search filters titles");
+        check(vm.Home.Shelves.Count > 0 && vm.Home.Shelves.All(s => s.Count > 0), "Home search hides empty shelves");
+        var sourceFilter = vm.Home.Sources.First(s => s.Value == "Local Media");
+        vm.Home.Source = sourceFilter;
+        vm.Home.HideWatched = true;
+        vm.Home.Query = "no-such-title-302";
+        await pump(() => !vm.Home.IsPreparing && vm.Home.Filtered.Count == 0, 5000);
+        var noResults = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window).OfType<TextBlock>()
+            .FirstOrDefault(t => t.Name == "HomeNoSearchResults");
+        check(vm.Home.HasNoSearchResults && vm.Home.Shelves.Count == 0 && noResults is { IsVisible: true },
+            "Home renders the no-results message without empty shelves");
+        Save(window, "10-home-no-results.png");
+        vm.Home.ClearQueryCommand.Execute(null);
+        await pump(() => !vm.Home.IsPreparing && vm.Home.Filtered.Count > 0, 5000);
+        check(!vm.Home.HasNoSearchResults && vm.Home.Shelves.Any(s => s.Count == 0) && noResults is { IsVisible: false },
+            "clearing Home search restores empty shelves and hides the no-results message");
+        check(vm.Home.Source.Value == sourceFilter.Value && vm.Home.HideWatched,
+            "clearing only the Home query preserves source and watched filters");
+        vm.Home.Query = "   ";
+        await pump(() => !vm.Home.IsPreparing, 5000);
+        check(!vm.Home.HasNoSearchResults && vm.Home.Shelves.Any(s => s.Count == 0), "whitespace search keeps the ordinary Home shelves");
+        vm.Home.HideWatched = false;
+        vm.Home.Source = vm.Home.Sources[0];
+        vm.Home.Query = "arriv";
+        await pump(() => !vm.Home.IsPreparing && vm.Home.Filtered.Count == 1, 5000);
+
+        // Clearing applies to all sources, including titles outside the current Home search.
+        if (arrival is not null && show is not null)
+        {
+            var first = arrival.Title.Versions[0].Media;
+            var second = show.Title.Versions[0].Media;
+            services.Entertainment.RecordPlayback(first, 30, 100);
+            services.Entertainment.RecordPlayback(second, 40, 100);
+            services.Entertainment.SavePlaybackPosition(first, 30, 100);
+            services.Entertainment.SavePlaybackPosition(second, 40, 100);
+            await pump(() => !vm.Home.IsPreparing && vm.Home.Shelves.Any(s => s.IsContinueWatching && s.Count == 1), 5000);
+            var clearButton = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window).OfType<Button>()
+                .FirstOrDefault(b => b.DataContext is HomeShelfViewModel { IsContinueWatching: true } && Equals(b.Content, "Clear"));
+            check(clearButton is { IsVisible: true, IsEnabled: true }, "Continue Watching renders an enabled Clear button");
+            var clear = vm.Home.ClearContinueWatchingCommand.ExecuteAsync(null);
+            await pump(() => Owned<ConfirmDialog>() is not null, 3000);
+            var confirmation = Owned<ConfirmDialog>();
+            check(confirmation is not null && services.Index.PlaybackPosition(first.Entry.Url) == 30,
+                "Clear asks for confirmation before changing progress");
+            confirmation?.FindControl<Button>("CancelButton")?.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            await pump(() => clear.IsCompleted, 3000);
+            if (!clear.IsCompleted) throw new InvalidOperationException("Continue Watching cancellation did not complete.");
+            await clear;
+            check(services.Index.PlaybackPosition(first.Entry.Url) == 30 && services.Entertainment.Personal.History.ContainsKey(second.Entry.Url.AbsoluteUri),
+                "cancelling Clear keeps both stores unchanged");
+            clear = vm.Home.ClearContinueWatchingCommand.ExecuteAsync(null);
+            await pump(() => Owned<ConfirmDialog>() is not null, 3000);
+            Owned<ConfirmDialog>()?.FindControl<Button>("OkButton")?.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            await pump(() => clear.IsCompleted, 5000);
+            if (!clear.IsCompleted) throw new InvalidOperationException("Continue Watching clearing did not complete.");
+            await clear;
+            await pump(() => !vm.Home.IsPreparing && vm.Home.Shelves.All(s => !s.IsContinueWatching), 5000);
+            check(services.Index.PlaybackPosition(first.Entry.Url) is null && services.Index.PlaybackPosition(second.Entry.Url) is null
+                && !services.Entertainment.Personal.History.ContainsKey(first.Entry.Url.AbsoluteUri)
+                && !services.Entertainment.Personal.History.ContainsKey(second.Entry.Url.AbsoluteUri),
+                "confirmed Clear removes progress from both stores, including filtered-out titles");
+            check(!vm.Home.ClearContinueWatchingCommand.CanExecute(null), "Clear is disabled when no unfinished titles remain");
+        }
 
         // ---------- Pick Something: dismissed before the version chooser opens ----------
         var pickTask = vm.Home.PickSomethingCommand.ExecuteAsync(null);

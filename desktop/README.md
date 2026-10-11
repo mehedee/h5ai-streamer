@@ -35,6 +35,7 @@ x86-64. Runs under X11, and under Wayland through XWayland.
 | Open in external VLC, copy link, reveal in Explorer, light/dark theme | Ported |
 | `Myra.exe <url-or-file>` plays a video directly | New |
 | Home (shelves, filters, Pick Something), Details, Watchlist/Collections, followed shows | Ported |
+| Clear Continue Watching with confirmation; hide empty Home shelves during search and show no-results guidance | Ported from macOS 3.0.2 |
 | OMDb/TMDB metadata, Correct Match, OpenSubtitles search, release versions and chooser | Ported |
 | Index Management (daily/weekly/manual schedules, staged refresh, full rescan), schema 4 index | Ported |
 | Fuzzy Global search (typos and reordered words, exact mode, provider-title aliases) | Ported |
@@ -87,14 +88,26 @@ On Windows: `powershell -ExecutionPolicy Bypass -File build\package-windows.ps1`
 ## Verification
 
 The `desktop-windows-linux` branch preserves this edition as a clean Myra snapshot;
-`master` contains the macOS edition. This edition matches macOS 3.0.1 (see Features), except
+`master` contains the macOS edition. This edition includes macOS 3.0.1 features (see Features), except
 Apple on-device AI and other macOS-only items ("Play on Sam Online", the Dock icon).
 AI is Disabled by default; OpenAI and Claude use your own API key and may incur charges.
+Desktop 3.0.2 adds confirmed Continue Watching clearing and the Home search presentation changes.
+Clearing removes unfinished progress from personal history and SQLite, invalidates the saved Home
+catalogue, and suppresses further progress writes from affected sessions until those titles start
+again. Finished/watched records, watchlist, collections and media files are retained. Installation
+still uses the existing scripts; the macOS Sparkle updater is not included. See the
+[Windows updater plan](docs/windows-updater-plan.md) for that separate work.
 Verification on 2026-10-08 (Linux, .NET 10): Release build with zero warnings, all 266
 .NET unit tests, and all headless checker checks (157) passed. The checker covers source
 browsing, natural ordering, SQLite search/indexing, profile persistence, real aria2
 pause/restart/resume, real libVLC playback, the AI workspace with a fake cloud provider
 (consent before any request, no request after a declined permission), and the icon picker.
+
+Verification on 2026-10-11 (Linux, .NET 10): all 281 unit tests and 166 headless checker checks
+passed for desktop 3.0.2. New checks cover confirmation/cancellation, clearing outside the current
+Home filters, restart persistence, failed writes, queued playback saves, finished records in
+conflicting stores, watched history outside the index, and Home search presentation. Actual aria2
+transfers and libVLC playback were skipped on this host. Native Windows execution remains unverified.
 
 - `tests/Myra.Core.Tests`: unit tests ported from the Swift test suite, plus Windows filename rules, index upgrade and AI permission checks.
 - `tools/Myra.UiCheck`: starts the real app headlessly against `tests/e2e/listing_server.py`

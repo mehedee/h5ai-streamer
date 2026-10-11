@@ -38,6 +38,9 @@ public sealed partial class EntertainmentStore
     private Task? _loading;
     private bool _reloadAgain;
     private int _enriching;
+    private int _clearingContinueWatching;
+    private readonly HashSet<string> _clearedPlaybackIds = [];
+    private readonly Dictionary<string, long> _playbackClearVersions = [];
 
     public EntertainmentStore(
         Func<LibraryIndex> index,
@@ -73,6 +76,7 @@ public sealed partial class EntertainmentStore
     public bool CanWrite { get; private set; } = true;
     public string? ErrorMessage { get; private set; }
     public bool IsEnriching => Volatile.Read(ref _enriching) == 1;
+    public bool IsClearingContinueWatching => Volatile.Read(ref _clearingContinueWatching) == 1;
 
     /// Incremented whenever catalogue, personal data or new-episode markers change.
     public long ProjectionRevision { get; private set; }
@@ -230,15 +234,135 @@ public sealed partial class EntertainmentStore
         }
     }
 
-    private static EntertainmentTitle WithHistory(EntertainmentTitle title, EntertainmentPersonalData personal)
+    private EntertainmentTitle WithHistory(EntertainmentTitle title, EntertainmentPersonalData personal)
     {
-        if (!title.Versions.Any(v => personal.History.ContainsKey(v.Id))) return title;
+        if (!title.Versions.Any(v => personal.History.ContainsKey(v.Id) || _clearedPlaybackIds.Contains(v.Id))) return title;
         return title with
         {
             Versions = title.Versions.Select(v => personal.History.TryGetValue(v.Id, out var record)
                 ? v with { ProgressSeconds = record.Seconds, Duration = record.Duration, LastPlayed = record.Updated }
+                : _clearedPlaybackIds.Contains(v.Id) && IsUnfinished(v.ProgressSeconds, v.Duration)
+                    ? v with { ProgressSeconds = 0, Duration = 0, LastPlayed = null }
                 : v).ToList(),
         };
+    }
+
+    /// A new playback session may record progress again after the user cleared its previous session.
+    public void BeginPlayback(GlobalSearchResult media)
+    {
+        lock (_lock) _clearedPlaybackIds.Remove(media.Entry.Url.AbsoluteUri);
+    }
+
+    /// Capture before queuing a save. A save from before a clear stays invalid after playback restarts.
+    public long PlaybackRecordingVersion(GlobalSearchResult media)
+    {
+        var id = media.Entry.Url.AbsoluteUri;
+        lock (_lock) return _clearedPlaybackIds.Contains(id) ? -1 : _playbackClearVersions.GetValueOrDefault(id);
+    }
+
+    /// Serializes player index writes with clearing so queued saves cannot recreate cleared entries.
+    public void SavePlaybackPosition(GlobalSearchResult media, double seconds, double duration, long? recordingVersion = null)
+    {
+        var id = media.Entry.Url.AbsoluteUri;
+        lock (_lock)
+        {
+            if (_clearedPlaybackIds.Contains(id)
+                || (recordingVersion is { } version && version != _playbackClearVersions.GetValueOrDefault(id))) return;
+            _index().SavePlaybackPosition(media.Entry.Url, seconds, duration);
+        }
+    }
+
+    /// Clears unfinished progress from both durable stores. Watched and finished records are retained.
+    public async Task<bool> ClearContinueWatchingAsync()
+    {
+        if (Interlocked.CompareExchange(ref _clearingContinueWatching, 1, 0) != 0) return false;
+        try
+        {
+            RaiseChanged();
+            return await Task.Run(() =>
+            {
+                lock (_lock)
+                {
+                    if (!CanWrite)
+                    {
+                        ErrorMessage = "Personal data is read-only; Continue Watching was not cleared.";
+                        return false;
+                    }
+                    var previous = _personal;
+                    var wrotePersonal = false;
+                    try
+                    {
+                        var index = _index();
+                        var inventory = index.Inventory();
+                        var indexedIds = inventory.Select(v => v.Id).ToHashSet();
+                        var orphanHistory = previous.History.Keys.Where(id => !indexedIds.Contains(id))
+                            .Select(HistoryVersion).OfType<EntertainmentVersion>();
+                        var watchedUrls = EntertainmentGrouping.Group(inventory.Concat(orphanHistory), previous.MatchCorrections)
+                            .Where(t => previous.Watched.Contains(t.Id)).SelectMany(t => t.Versions).Select(v => v.Id).ToHashSet();
+                        var personalIds = previous.History.Where(p => !watchedUrls.Contains(p.Key) && IsUnfinished(p.Value.Seconds, p.Value.Duration))
+                            .Select(p => p.Key).ToHashSet();
+                        var indexIds = inventory.Where(v => !watchedUrls.Contains(v.Id) && IsUnfinished(v.ProgressSeconds, v.Duration))
+                            .Select(v => v.Id).ToHashSet();
+                        var ids = personalIds.Union(indexIds).ToHashSet();
+                        if (ids.Count == 0) return true;
+                        var updated = previous.Clone();
+                        foreach (var id in personalIds) updated.History.Remove(id);
+                        var retainedPlayback = inventory.Where(v => ids.Contains(v.Id) && !indexIds.Contains(v.Id))
+                            .GroupBy(v => v.Id).ToDictionary(g => g.Key, g => g.First());
+                        var catalogue = _catalogue.Select(t => WithHistory(t with
+                        {
+                            Versions = t.Versions.Select(v => ids.Contains(v.Id) ? v with
+                            {
+                                ProgressSeconds = retainedPlayback.GetValueOrDefault(v.Id)?.ProgressSeconds ?? 0,
+                                Duration = retainedPlayback.GetValueOrDefault(v.Id)?.Duration ?? 0,
+                                LastPlayed = retainedPlayback.GetValueOrDefault(v.Id)?.LastPlayed,
+                            } : v).ToList(),
+                        }, updated)).ToList();
+                        Write(updated);
+                        wrotePersonal = true;
+                        index.ClearPlaybackPositions(indexIds);
+                        _personal = updated;
+                        _clearedPlaybackIds.UnionWith(ids);
+                        foreach (var id in ids) _playbackClearVersions[id] = _playbackClearVersions.GetValueOrDefault(id) + 1;
+                        _catalogue = catalogue;
+                        if (_loading is { IsCompleted: false }) _reloadAgain = true;
+                        ErrorMessage = null;
+                        return true;
+                    }
+                    catch (Exception error)
+                    {
+                        if (wrotePersonal)
+                        {
+                            try { Write(previous); }
+                            catch (Exception recovery)
+                            {
+                                ErrorMessage = "Clearing failed and personal history recovery failed: " + recovery.Message;
+                                return false;
+                            }
+                        }
+                        ErrorMessage = "Continue Watching could not be cleared: " + error.Message;
+                        return false;
+                    }
+                }
+            }).ConfigureAwait(false);
+        }
+        finally
+        {
+            Volatile.Write(ref _clearingContinueWatching, 0);
+            RaiseChanged();
+        }
+    }
+
+    private static bool IsUnfinished(double seconds, double duration) => seconds >= 5 && (duration == 0 || duration > seconds + 10);
+
+    /// Recover title identity for watched history whose source file is no longer indexed.
+    private static EntertainmentVersion? HistoryVersion(string id)
+    {
+        if (!Uri.TryCreate(id, UriKind.Absolute, out var url)
+            || !(url.IsFile || url.Scheme is "http" or "https") || url.Segments.Length == 0) return null;
+        var name = Uri.UnescapeDataString(url.Segments[^1]);
+        var media = new GlobalSearchResult(Guid.Empty, "", url.Parent(), new DirectoryEntry(name, url, EntryKind.File), name, null);
+        return new EntertainmentVersion(media, DateTimeOffset.MinValue);
     }
 
     /// Enriches up to 50 titles that lack fresh TMDB data. Pauses while indexing runs. Ambiguous titles
@@ -417,25 +541,32 @@ public sealed partial class EntertainmentStore
         if (!double.IsFinite(seconds) || !double.IsFinite(duration) || seconds < 0 || duration < 0) return;
         var id = media.Entry.Url.AbsoluteUri;
         var record = new EntertainmentPlaybackRecord(seconds, duration, now ?? DateTimeOffset.Now);
-        bool write;
-        lock (_lock) write = persist || Environment.TickCount64 - _lastWrite >= (long)PlaybackWriteInterval.TotalMilliseconds;
-        if (write)
-        {
-            if (!Mutate(data => data.History[id] = record)) return;
-        }
-        else
-        {
-            lock (_lock)
-            {
-                if (!CanWrite) return;
-                var updated = _personal.Clone();
-                updated.History[id] = record;
-                _personal = updated;
-                _personalDirty = true;
-            }
-        }
         lock (_lock)
         {
+            if (_clearedPlaybackIds.Contains(id)) return;
+            if (!CanWrite)
+            {
+                ErrorMessage = "Personal data is read-only because the existing file could not be loaded.";
+                return;
+            }
+            var updated = _personal.Clone();
+            updated.History[id] = record;
+            var write = persist || Environment.TickCount64 - _lastWrite >= (long)PlaybackWriteInterval.TotalMilliseconds;
+            if (write)
+            {
+                try
+                {
+                    updated.Validate();
+                    Write(updated);
+                }
+                catch (Exception error) when (error is InvalidImportException or IOException or UnauthorizedAccessException)
+                {
+                    ErrorMessage = error.Message;
+                    return;
+                }
+            }
+            _personal = updated;
+            _personalDirty = !write;
             _catalogue = _catalogue.Select(t => t.Versions.Any(v => v.Id == id)
                 ? t with { Versions = t.Versions.Select(v => v.Id == id ? v with { ProgressSeconds = seconds, Duration = duration, LastPlayed = record.Updated } : v).ToList() }
                 : t).ToList();

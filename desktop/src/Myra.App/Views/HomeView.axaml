@@ -95,6 +95,8 @@
                    Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center" />
       </StackPanel>
 
+      <TextBlock x:Name="HomeNoSearchResults" Text="No titles match your search. Try another title or adjust your filters."
+                 IsVisible="{Binding HasNoSearchResults}" HorizontalAlignment="Center" Margin="0,40" TextWrapping="Wrap" />
       <ItemsControl ItemsSource="{Binding Shelves}" IsVisible="{Binding HasCatalogue}">
         <ItemsControl.ItemsPanel>
           <ItemsPanelTemplate>

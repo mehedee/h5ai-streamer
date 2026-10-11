@@ -819,6 +819,24 @@ public sealed class LibraryIndex : IDisposable
             Execute("INSERT OR REPLACE INTO playback VALUES($a,$b,$c,$d)", url.AbsoluteUri, Math.Max(0, seconds), Math.Max(0, duration), Now());
     }
 
+    /// Removes only the selected resume records and invalidates the saved Home catalogue.
+    public void ClearPlaybackPositions(IReadOnlySet<string> ids)
+    {
+        lock (_lock)
+        {
+            using var transaction = _connection.BeginTransaction();
+            using var command = Command("DELETE FROM playback WHERE url=$a", "");
+            command.Transaction = transaction;
+            foreach (var id in ids)
+            {
+                command.Parameters[0].Value = id;
+                command.ExecuteNonQuery();
+            }
+            BumpRevision();
+            transaction.Commit();
+        }
+    }
+
     /// Returns a resume point only when it is meaningful: past 5 s and more than 10 s before the end.
     public double? PlaybackPosition(Uri url)
     {
