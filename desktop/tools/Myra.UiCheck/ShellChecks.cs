@@ -256,6 +256,9 @@ internal static class ShellChecks
         collections.Close();
 
         // ---------- Offline Library ----------
+        // The real aria2 checks leave completed downloads. Keep this fixture independent.
+        var previousDownloads = services.Store.Items.ToList();
+        services.Store.Items.Clear();
         var folder = Path.Combine(data, "Downloads", "Movies");
         Directory.CreateDirectory(folder);
         var mediaRoot = Environment.GetEnvironmentVariable("MYRA_TEST_MEDIA");
@@ -277,6 +280,8 @@ internal static class ShellChecks
 
         // ---------- Library browser, inspector and the version chooser ----------
         vm.SelectedNav = vm.NavItems.First(n => n.Section == ShellSection.Library);
+        services.Store.Items.Clear();
+        foreach (var item in previousDownloads) services.Store.Items.Add(item);
         vm.IsGlobalScope = false;
         await vm.NavigateAsync(new Uri(new Uri(root), "Movies/2025/"));
         await pump(() => vm.Entries.Count == 2, 5000);
@@ -288,6 +293,11 @@ internal static class ShellChecks
         check(vm.ShowInspector && vm.Inspector.Selected?.Entry.Name == vm.Entries[0].Name, "clicking a video opens the inspector");
         check(vm.Inspector.MetadataError?.Contains("OMDb API key") == true, "without an OMDb key the inspector explains it: " + vm.Inspector.MetadataError);
         check(vm.Inspector.LocalFields.Any(f => f.Name == "File name") && vm.Inspector.LocalFields.Any(f => f.Name == "Category"), "local information is listed");
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("MYRA_LIBVLC_DIR")))
+            check(vm.Inspector.TechnicalDetails.GetValueOrDefault("Resolution") == "320 × 180"
+                  && vm.Inspector.TechnicalDetails.ContainsKey("Duration")
+                  && vm.Inspector.TechnicalDetails.ContainsKey("Video codec"),
+                "native VLC inspection reports duration, resolution and codec without disposing media inside its callback");
         Save(window, "17-inspector.png");
         check(Math.Abs(panel.Bounds.Width - Math.Min(460, libraryWidth)) < 1 && Math.Abs(window.FindControl<Panel>("LibraryArea")!.Bounds.Width - libraryWidth) < 1,
             $"inspector is {panel.Bounds.Width} px over the browser, which keeps {libraryWidth} px");

@@ -11,8 +11,11 @@ dotnet publish src/Myra.App/Myra.App.csproj -c Release -r linux-x64 --self-conta
 
 cp src/Myra.App/Assets/Myra.png "$OUT/myra.png"
 cp build/linux/install.sh build/linux/uninstall.sh "$OUT/"
+cp build/migrate-profile.py "$OUT/"
 cp build/linux/README-Linux.txt "$OUT/README.txt"
+git describe --always --dirty > "$OUT/REVISION.txt"
 chmod +x "$OUT/install.sh" "$OUT/uninstall.sh" "$OUT/app/Myra"
 
 tar -C dist -czf "$OUT.tar.gz" Myra-linux-x64
+(cd dist && sha256sum Myra-linux-x64.tar.gz > Myra-linux-x64.tar.gz.sha256)
 du -sh "$OUT.tar.gz"

@@ -16,13 +16,24 @@ Windows 10 or 11, 64-bit.
 ## Install on Linux
 
 1. Install libVLC and aria2 from your distribution:
-   - Arch: `sudo pacman -S --needed aria2 libvlc vlc-plugins-base vlc-plugins-video-output vlc-plugin-ffmpeg vlc-plugin-matroska vlc-plugin-pulse`
-   - Debian/Ubuntu: `sudo apt install aria2 libvlc5 vlc-plugin-base vlc-plugin-video-output`
+   - Arch/Omarchy: `sudo pacman -S --needed aria2 libvlc vlc-plugins-base vlc-plugins-video-output vlc-plugin-ffmpeg vlc-plugin-matroska vlc-plugin-pulse xorg-xwayland libnotify`
+   - Debian/Ubuntu: `sudo apt install aria2 libvlc-dev vlc-plugin-base vlc-plugin-video-output`
 2. Build with `build/package-linux.sh`, then extract `Myra-linux-x64.tar.gz`.
 3. Run `./install.sh`. It installs for your user only, adds a `myra` command and an app-menu entry.
    `./uninstall.sh` removes it.
 
-x86-64. Runs under X11, and under Wayland through XWayland.
+x86-64. Runs under X11, and under Wayland through XWayland. The .NET runtime is included.
+The Arch VLC plugin dependencies are listed in the [official package catalogue](https://archlinux.org/packages/extra/x86_64/vlc-plugin-ffmpeg/).
+Install the optional `vlc` package for **Open in external VLC**.
+
+To update, close Myra and run the new package's `./install.sh`. The installer stages the new app
+before replacing the installed directory. It retains each previous app in
+`${XDG_DATA_HOME:-~/.local/share}/myra.backup-<date>.<suffix>`. Sources, history, credentials and
+download paths stay in the existing profile. The installer refuses to replace a running app.
+To roll back, close Myra and replace the `myra` directory with a retained app backup.
+The package includes `REVISION.txt`; verify the archive with its accompanying `.sha256` file.
+It also includes `migrate-profile.py` for an explicit upgrade from a differently named profile;
+follow [Upgrade an existing desktop profile](#upgrade-an-existing-desktop-profile) before first launch.
 
 ## Features
 
@@ -32,6 +43,7 @@ x86-64. Runs under X11, and under Wayland through XWayland.
 | Current-folder filter and Global search over a persistent SQLite index (24 h auto refresh) | Ported |
 | Folder downloads through aria2: hierarchy kept, pause/resume/cancel/retry, resume after restart | Ported |
 | Embedded player (libVLC): resume, English audio/subtitle defaults, natural-order auto-next, repeat, speed, subtitle files, fullscreen, keyboard | Ported |
+| Show hidden fullscreen controls when the pointer moves over native video | Windows and Linux X11/XWayland |
 | Open in external VLC, copy link, reveal in Explorer, light/dark theme | Ported |
 | `Myra.exe <url-or-file>` plays a video directly | New |
 | Home (shelves, filters, Pick Something), Details, Watchlist/Collections, followed shows | Ported |
@@ -78,7 +90,7 @@ Needs the .NET 10 SDK.
 
 ```sh
 dotnet test tests/Myra.Core.Tests     # unit tests
-python3 -m unittest discover -s tests -p '*_test.py'  # profile migration safety
+python3 -m unittest discover -s tests -p '*_test.py'  # profile migration and Linux install safety
 ./build/package-windows.sh             # builds dist/Myra-win-x64.zip (from Linux, macOS or Windows)
 ./build/package-linux.sh               # builds dist/Myra-linux-x64.tar.gz
 ```
@@ -108,6 +120,23 @@ passed for desktop 3.0.2. New checks cover confirmation/cancellation, clearing o
 Home filters, restart persistence, failed writes, queued playback saves, finished records in
 conflicting stores, watched history outside the index, and Home search presentation. Actual aria2
 transfers and libVLC playback were skipped on this host. Native Windows execution remains unverified.
+
+Linux 3.0.2 includes the same shared feature code as Windows commit `7b9ad5a`. It also adds safe
+Linux install backups and X11 pointer tracking over fullscreen video. Stream inspection yields
+after VLC's parse callback before disposing media; the previous path crashed with Linux VLC 3.0.16.
+
+Verification on 2026-10-12 (Ubuntu 22.04 / WSL, .NET 10): 281 unit tests, 12 profile/installer tests,
+and 211 UI/integration checks passed. Integration checks used real aria2 downloads and real VLC
+playback, including resume, episode order, audio/subtitle selection, seeking and stream inspection.
+The native X11 checker exercises displayed video frames and fullscreen pointer tracking under Xvfb.
+Arch/Omarchy, Hyprland/XWayland, hardware decoding and physical audio output require a target-machine check.
+See the [Linux verification notes](docs/linux-3.0.2-verification.md) for evidence and remaining limits.
+
+To run the native Linux checker with the local listing/media fixture server and an X11 display:
+
+```sh
+MYRA_LINUX_NATIVE_ONLY=1 MYRA_VLC_ARGS='--aout=dummy' dotnet run --project tools/Myra.UiCheck -c Release -- http://127.0.0.1:8765/ artifacts/linux-native
+```
 
 - `tests/Myra.Core.Tests`: unit tests ported from the Swift test suite, plus Windows filename rules, index upgrade and AI permission checks.
 - `tools/Myra.UiCheck`: starts the real app headlessly against `tests/e2e/listing_server.py`

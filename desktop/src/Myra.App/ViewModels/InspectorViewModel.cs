@@ -234,7 +234,10 @@ public sealed partial class InspectorViewModel(AppServices services) : Observabl
     {
         var vlc = ProbeVlc();
         using var media = new Media(vlc, url);
+        // LibVLCSharp completes Parse inside a native callback. Continue on a worker so
+        // disposing Media cannot destroy the event manager while VLC is dispatching it.
         var status = await media.Parse(MediaParseOptions.ParseNetwork | MediaParseOptions.ParseLocal, 10_000, cancellationToken);
+        await Task.Yield();
         if (status != MediaParsedStatus.Done) throw new MetadataException(MetadataErrorKind.Network);
         var details = new Dictionary<string, string>();
         if (media.Duration > 0) details["Duration"] = PlayerTime.Format(media.Duration / 1000.0);

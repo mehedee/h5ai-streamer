@@ -32,6 +32,7 @@ public partial class PlayerView : UserControl
     private bool _attached;
     private bool _lastEffectivelyVisible;
     private PixelPoint _lastCursor;
+    private IntPtr _cursorDisplay;
 
     public PlayerView()
     {
@@ -156,6 +157,12 @@ public partial class PlayerView : UserControl
     {
         _attached = false;
         _cursorWatch.Stop();
+        if (_cursorDisplay != IntPtr.Zero)
+        {
+            XCloseDisplay(_cursorDisplay);
+            _cursorDisplay = IntPtr.Zero;
+        }
+        _lastCursor = default;
         _topLevel?.RemoveHandler(KeyDownEvent, OnKeyDown);
         _windowStateSubscription?.Dispose();
         _windowStateSubscription = null;
@@ -291,11 +298,23 @@ public partial class PlayerView : UserControl
         ToolTip.SetTip(SeekBar, null);
     }
 
-    private static bool TryGetCursor(out PixelPoint point)
+    private bool TryGetCursor(out PixelPoint point)
     {
         point = default;
-        if (!OperatingSystem.IsWindows() || !GetCursorPos(out var native)) return false;
-        point = new PixelPoint(native.X, native.Y);
+        if (OperatingSystem.IsWindows())
+        {
+            if (!GetCursorPos(out var native)) return false;
+            point = new PixelPoint(native.X, native.Y);
+            return true;
+        }
+        if (!OperatingSystem.IsLinux()) return false;
+        // Linux playback uses X11, including XWayland. Use a separate connection on the UI
+        // thread because the native video surface can consume Avalonia pointer events.
+        if (_cursorDisplay == IntPtr.Zero) _cursorDisplay = XOpenDisplay(IntPtr.Zero);
+        if (_cursorDisplay == IntPtr.Zero || XQueryPointer(_cursorDisplay,
+            XDefaultRootWindow(_cursorDisplay), out _, out _, out var x, out var y,
+            out _, out _, out _) == 0) return false;
+        point = new PixelPoint(x, y);
         return true;
     }
 
@@ -309,6 +328,20 @@ public partial class PlayerView : UserControl
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetCursorPos(out NativePoint point);
+
+    [DllImport("libX11.so.6")]
+    private static extern IntPtr XOpenDisplay(IntPtr name);
+
+    [DllImport("libX11.so.6")]
+    private static extern int XCloseDisplay(IntPtr display);
+
+    [DllImport("libX11.so.6")]
+    private static extern nuint XDefaultRootWindow(IntPtr display);
+
+    [DllImport("libX11.so.6")]
+    private static extern int XQueryPointer(IntPtr display, nuint window, out nuint root,
+        out nuint child, out int rootX, out int rootY, out int windowX, out int windowY,
+        out uint mask);
 
     // ---------- Keyboard ----------
 

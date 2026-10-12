@@ -15,10 +15,11 @@ Directory.CreateDirectory(output);
 var data = Path.Combine(Path.GetTempPath(), "myra-uicheck-" + Guid.NewGuid().ToString("N"));
 Environment.SetEnvironmentVariable("MYRA_DATA_DIR", data);
 
-AppBuilder.Configure<Myra.App.App>()
-    .UseSkia()
-    .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
-    .SetupWithoutStarting();
+var nativeLinux = Environment.GetEnvironmentVariable("MYRA_LINUX_NATIVE_ONLY") == "1";
+var app = AppBuilder.Configure<Myra.App.App>();
+if (nativeLinux) app.UsePlatformDetect().WithInterFont();
+else app.UseSkia().UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false });
+app.SetupWithoutStarting();
 
 var failures = new List<string>();
 void Check(bool condition, string message)
@@ -46,6 +47,7 @@ void Save(MainWindow window, string name)
     Console.WriteLine("saved " + name);
 }
 
+if (nativeLinux) return await LinuxCursorChecks.StandaloneAsync(root, Check, Pump);
 if (Environment.GetEnvironmentVariable("MYRA_DIALOGS_ONLY") == "1") return await DialogChecks.StandaloneAsync(root, output);
 
 var work = Dispatcher.UIThread.InvokeAsync(async () =>
@@ -232,16 +234,21 @@ var work = Dispatcher.UIThread.InvokeAsync(async () =>
     // Embedded playback through libVLC when MYRA_LIBVLC_DIR is set.
     if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("MYRA_LIBVLC_DIR")))
     {
+        // These checks drive the player model with dummy video output. Native window behavior
+        // is checked separately; the real view would confirm fullscreen synchronously here.
         PlayerViewModel? player = null;
         var closed = 0;
         vm.ShowPlayer = p =>
         {
             if (player != p) p.BackToLibraryRequested += () => closed++;
             player = p;
+            p.VideoSurfaceReady();
         };
         vm.SearchText = "";
         await vm.NavigateAsync(new Uri(new Uri(root), "TV%20Series/Some%20Show/Season%201/"));
         await vm.Play(vm.Entries[0].Entry);
+        window.FindControl<PlayerView>("Player")!.DataContext = null;
+        player?.VideoSurfaceReady();
         Check(player is not null, "player opened " + vm.ErrorMessage);
         if (player is null) throw new InvalidOperationException("player did not open");
         await Pump(() => player!.State == PlayerState.Playing && player.Duration > 0, 10000);
@@ -252,7 +259,7 @@ var work = Dispatcher.UIThread.InvokeAsync(async () =>
         player.FullscreenChangeRequested += requests.Add;
         player.ToggleFullscreenCommand.Execute(null);
         player.ExitFullscreenCommand.Execute(null);
-        Check(requests.SequenceEqual([true]), "an exit during the enter transition is queued, not sent");
+        Check(requests.SequenceEqual([true]), "an exit during the enter transition is queued, not sent: " + string.Join(", ", requests));
         player.NotifyFullscreenChanged(true);
         Check(requests.SequenceEqual([true, false]), "the queued exit runs once the window has entered fullscreen");
         player.NotifyFullscreenChanged(false);
@@ -311,10 +318,21 @@ var work = Dispatcher.UIThread.InvokeAsync(async () =>
         Check(player.Position >= 9 && player.ResumePosition is null, $"Resume jumps to the saved position ({player.Position:0.0}s)");
         // Command-line playback ("Myra.exe <url>") builds its queue from the URL's folder.
         // Command-line playback uses its own player window.
-        vm.ShowPlayerWindow = p => player = p;
+        vm.ShowPlayerWindow = p =>
+        {
+            player = p;
+            p.VideoSurfaceReady();
+            p.FullscreenChangeRequested += requests.Add;
+        };
         vm.PlayTarget(new Uri(new Uri(root), "TV%20Series/Some%20Show/Season%201/Some.Show.S01E02.720p.mkv").AbsoluteUri);
         await Pump(() => player.Title.Contains("S01E02") && player.State == PlayerState.Playing, 10000);
         Check(player.Title.Contains("S01E02") && player.HasPrevious && player.HasNext, "command-line URL plays with its folder as the queue");
+        // A three-second episode cannot exercise a sixty-second seek. Use the long fixture.
+        var longEntry = vm.Entries.First(e => e.Name.StartsWith("Long Clip")).Entry;
+        var longMedia = new GlobalSearchResult(services.Store.Categories[0].Id, "Local Media",
+            new Uri(new Uri(root), "Tracks/"), longEntry, longEntry.Name, null);
+        player.Load(longMedia, new PlaybackSequence(longMedia, [longEntry], null), resume: false);
+        await Pump(() => player.State == PlayerState.Playing && player.Duration > 45 && player.IsSeekable, 10000);
         player.ChangeVolume(30);
         Check(player.Volume == 100 && player.MediaPlayer.Volume <= 100, "volume is capped at 100");
         Check(player.HandleShortcut(Key.Down, KeyModifiers.None) && player.Volume == 95, "Down lowers the volume by 5");
@@ -338,7 +356,7 @@ var work = Dispatcher.UIThread.InvokeAsync(async () =>
         player.ToggleFullscreenCommand.Execute(null);
         player.NotifyFullscreenChanged(true);
         player.BackToLibraryCommand.Execute(null);
-        Check(returned == 0 && requests.Last() == false, "Back to Library asks to leave fullscreen first");
+        Check(returned == 0 && requests.Count > 0 && requests.Last() == false, "Back to Library asks to leave fullscreen first");
         player.NotifyFullscreenChanged(false);
         Check(returned == 1 && player.Current is null && !player.IsClosed, "Back to Library returns after fullscreen ends and keeps the player reusable");
         player.Close();

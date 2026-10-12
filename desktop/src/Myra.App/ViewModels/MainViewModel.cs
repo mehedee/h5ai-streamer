@@ -1073,7 +1073,7 @@ public sealed partial class MainViewModel : ObservableObject
             ErrorMessage = OperatingSystem.IsWindows()
                 ? "The video player could not start (libVLC is missing): " + error.Message
                 : "The video player needs libVLC. Arch: 'sudo pacman -S libvlc vlc-plugins-base vlc-plugins-video-output vlc-plugin-ffmpeg vlc-plugin-matroska vlc-plugin-pulse'. "
-                  + "Debian/Ubuntu: 'sudo apt install libvlc5 vlc-plugin-base vlc-plugin-video-output'. (" + error.Message + ")";
+                  + "Debian/Ubuntu: 'sudo apt install libvlc-dev vlc-plugin-base vlc-plugin-video-output'. (" + error.Message + ")";
             return null;
         }
         player.PlaybackPreferences = _hooks;
