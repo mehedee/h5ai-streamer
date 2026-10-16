@@ -20,8 +20,8 @@ FEED_STAGE="$(mktemp -d "$PROJECT_ROOT/.build/update-feed/release.XXXXXX")"
 cp -p "$DMG_PATH" "$FEED_STAGE/Myra.dmg"
 cp "$PROJECT_ROOT/docs/release-notes-$VERSION.md" "$FEED_STAGE/Myra.md"
 "$TOOLS/generate_appcast" --account com.mehedee.Myra \
-  --download-url-prefix "https://github.com/mehedee/h5ai-streamer/releases/download/v$VERSION/" \
-  --link "https://github.com/mehedee/h5ai-streamer/releases" \
+  --download-url-prefix "https://github.com/mehedee/myra/releases/download/v$VERSION/" \
+  --link "https://github.com/mehedee/myra/releases" \
   --maximum-deltas 0 --embed-release-notes "$FEED_STAGE"
 [[ -f "$FEED_STAGE/appcast.xml" ]] || { print -u2 "No appcast was generated."; exit 1; }
 "$TOOLS/sign_update" --account com.mehedee.Myra --verify "$FEED_STAGE/appcast.xml"

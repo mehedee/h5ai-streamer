@@ -10,6 +10,21 @@ enum LibraryIndexError: LocalizedError {
   }
 }
 
+struct IndexRecordFailure: Sendable {
+  let categoryID: UUID
+  let categoryName: String
+  let url: URL
+  let relativePath: String
+  let message: String
+}
+
+struct IndexWriteSummary: Sendable {
+  var added = 0
+  var changed = 0
+  var validRecords: [GlobalSearchResult] = []
+  var failures: [IndexRecordFailure] = []
+}
+
 // SQLite is only accessed by LibraryIndex's actor. FULLMUTEX also protects cleanup.
 private final class IndexConnection: @unchecked Sendable {
   let handle: OpaquePointer
@@ -115,6 +130,9 @@ actor LibraryIndex {
       BEGIN IMMEDIATE;
       CREATE TABLE IF NOT EXISTS folders(category TEXT NOT NULL, root TEXT NOT NULL,
         url TEXT NOT NULL, payload TEXT NOT NULL, checked REAL NOT NULL, PRIMARY KEY(category,url));
+      CREATE TABLE IF NOT EXISTS scan_failures(category TEXT NOT NULL, root TEXT NOT NULL,
+        url_prefix TEXT NOT NULL, relative_path TEXT NOT NULL, is_directory INTEGER NOT NULL,
+        PRIMARY KEY(category,url_prefix,relative_path,is_directory));
       CREATE TABLE IF NOT EXISTS index_state(id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL);
       INSERT OR IGNORE INTO index_state VALUES(1,0);
       PRAGMA user_version=4;
@@ -256,8 +274,58 @@ actor LibraryIndex {
   }
 
   func upsert(_ results: [GlobalSearchResult], generation: UUID) throws {
+    for result in results { try validate(result) }
+    _ = try writeValid(results, generation: generation)
+  }
+
+  /// Persists every valid scan record while returning bad records for path-level reporting.
+  func upsertDuringScan(_ results: [GlobalSearchResult], generation: UUID) throws
+    -> IndexWriteSummary
+  {
+    var summary = IndexWriteSummary()
+    var valid: [GlobalSearchResult] = []
+    valid.reserveCapacity(results.count)
+    for result in results {
+      do {
+        try validate(result)
+        valid.append(result)
+      } catch {
+        summary.failures.append(
+          IndexRecordFailure(
+            categoryID: result.categoryID, categoryName: result.categoryName,
+            url: result.entry.url, relativePath: result.relativePath,
+            message: error.localizedDescription))
+      }
+    }
+    let written = try writeValid(valid, generation: generation)
+    summary.added = written.added
+    summary.changed = written.changed
+    summary.validRecords = valid
+    return summary
+  }
+
+  /// Writes records already validated by the staging index in a bounded main-index transaction.
+  func upsertValidated(_ results: [GlobalSearchResult], generation: UUID) throws
+    -> (added: Int, changed: Int)
+  {
+    try writeValid(results, generation: generation)
+  }
+
+  private func validate(_ result: GlobalSearchResult) throws {
     try Task.checkCancellation()
-    guard !results.isEmpty else { return }
+    let boundary = try URLBoundary(root: result.categoryRoot)
+    guard MediaFileType.isVideo(result.entry), boundary.contains(result.entry.url),
+      !result.relativePath.split(separator: "/").contains("..")
+    else { throw DirectoryError.outsideCategoryRoot }
+  }
+
+  private func writeValid(_ results: [GlobalSearchResult], generation: UUID) throws
+    -> (added: Int, changed: Int)
+  {
+    try Task.checkCancellation()
+    guard !results.isEmpty else { return (0, 0) }
+    var added = 0
+    var changed = 0
     try transaction {
       let statement = try prepare(
         """
@@ -267,16 +335,45 @@ actor LibraryIndex {
           category_name=excluded.category_name,name=excluded.name,search_name=excluded.search_name,
           relative_path=excluded.relative_path,artwork=excluded.artwork,size=excluded.size,
           modified=excluded.modified,generation=excluded.generation
+        WHERE videos.root IS NOT excluded.root OR videos.category_name IS NOT excluded.category_name
+          OR videos.name IS NOT excluded.name OR videos.relative_path IS NOT excluded.relative_path
+          OR videos.artwork IS NOT excluded.artwork OR videos.size IS NOT excluded.size
+          OR videos.modified IS NOT excluded.modified
         """)
+      let existing = try prepare(
+        "SELECT root,category_name,name,relative_path,artwork,size,modified FROM videos WHERE category=? AND url=?"
+      )
       defer { sqlite3_finalize(statement) }
-      try execute("UPDATE index_state SET revision=revision+1 WHERE id=1")
+      defer { sqlite3_finalize(existing) }
       for result in results {
         try Task.checkCancellation()
-        let boundary = try URLBoundary(root: result.categoryRoot)
-        guard MediaFileType.isVideo(result.entry), boundary.contains(result.entry.url),
-          !result.relativePath.split(separator: "/").contains("..")
-        else {
-          throw DirectoryError.outsideCategoryRoot
+        sqlite3_reset(existing)
+        sqlite3_clear_bindings(existing)
+        bind(result.categoryID.uuidString, to: existing, at: 1)
+        bind(result.entry.url.absoluteString, to: existing, at: 2)
+        let existingStatus = sqlite3_step(existing)
+        let hasExisting = existingStatus == SQLITE_ROW
+        guard hasExisting || existingStatus == SQLITE_DONE else { throw databaseError() }
+        if hasExisting {
+          let storedArtwork =
+            sqlite3_column_type(existing, 4) == SQLITE_NULL ? nil : string(existing, 4)
+          let storedSize =
+            sqlite3_column_type(existing, 5) == SQLITE_NULL
+            ? nil : sqlite3_column_int64(existing, 5)
+          let storedModified =
+            sqlite3_column_type(existing, 6) == SQLITE_NULL
+            ? nil : sqlite3_column_double(existing, 6)
+          let differs =
+            string(existing, 0) != result.categoryRoot.absoluteString
+            || string(existing, 1) != result.categoryName
+            || string(existing, 2) != result.entry.name
+            || string(existing, 3) != result.relativePath
+            || storedArtwork != result.artworkURL?.absoluteString
+            || storedSize != result.entry.size
+            || storedModified != result.entry.modifiedAt?.timeIntervalSince1970
+          if differs { changed += 1 }
+        } else {
+          added += 1
         }
         sqlite3_reset(statement)
         sqlite3_clear_bindings(statement)
@@ -297,7 +394,11 @@ actor LibraryIndex {
         sqlite3_bind_double(statement, 12, Date.now.timeIntervalSince1970)
         try stepDone(statement)
       }
+      if added + changed > 0 {
+        try execute("UPDATE index_state SET revision=revision+1 WHERE id=1")
+      }
     }
+    return (added, changed)
   }
 
   func completeSource(_ root: GlobalSearchRoot, generation: UUID, now: Date = .now) throws {
@@ -346,6 +447,48 @@ actor LibraryIndex {
         scope.root.id.uuidString, scope.root.url.absoluteString, scope.folder.absoluteString,
         payload,
         String(value.checked.timeIntervalSince1970),
+      ])
+  }
+
+  func recordFailedFolder(root: GlobalSearchRoot, url: URL, relativePath: String) throws {
+    var urlPrefix = url.standardizedDirectoryURL.absoluteString
+    if !urlPrefix.hasSuffix("/") { urlPrefix += "/" }
+    let normalizedPath = relativePath.split(separator: "/").joined(separator: "/")
+    try recordScanFailure(
+      categoryID: root.id, rootURL: root.url, urlPrefix: urlPrefix,
+      relativePath: normalizedPath.isEmpty ? "" : normalizedPath + "/", isDirectory: true)
+  }
+
+  func recordFailedFiles(_ failures: [IndexRecordFailure], roots: [GlobalSearchRoot]) throws {
+    guard !failures.isEmpty else { return }
+    let rootsByID = Dictionary(uniqueKeysWithValues: roots.map { ($0.id, $0) })
+    try transaction {
+      let statement = try prepare("INSERT OR IGNORE INTO scan_failures VALUES(?,?,?,?,0)")
+      defer { sqlite3_finalize(statement) }
+      for failure in failures {
+        guard let root = rootsByID[failure.categoryID] else { continue }
+        try Task.checkCancellation()
+        sqlite3_reset(statement)
+        sqlite3_clear_bindings(statement)
+        bind(failure.categoryID.uuidString, to: statement, at: 1)
+        bind(root.url.absoluteString, to: statement, at: 2)
+        bind(failure.url.absoluteString, to: statement, at: 3)
+        bind(failure.relativePath, to: statement, at: 4)
+        try stepDone(statement)
+      }
+    }
+  }
+
+  private func recordScanFailure(
+    categoryID: UUID, rootURL: URL, urlPrefix: String,
+    relativePath: String, isDirectory: Bool
+  ) throws {
+    try Task.checkCancellation()
+    try execute(
+      "INSERT OR IGNORE INTO scan_failures VALUES(?,?,?,?,?)",
+      [
+        categoryID.uuidString, rootURL.absoluteString, urlPrefix, relativePath,
+        isDirectory ? "1" : "0",
       ])
   }
 
@@ -467,6 +610,69 @@ actor LibraryIndex {
         }
       }
       if summary.added + summary.changed + summary.removed > 0 {
+        try execute("UPDATE index_state SET revision=revision+1 WHERE id=1")
+      }
+    }
+    return summary
+  }
+
+  /// Reconciles completed listings while retaining rows covered by recorded scan failures.
+  func reconcile(
+    stagingURL: URL, scopes: [IndexScope], completedRoots: [GlobalSearchRoot]
+  ) throws -> IndexRefreshSummary {
+    try Task.checkCancellation()
+    try execute("ATTACH DATABASE ? AS incoming", [stagingURL.path])
+    defer { try? execute("DETACH DATABASE incoming") }
+    var summary = IndexRefreshSummary()
+    try transaction {
+      for scope in IndexScope.compact(scopes) {
+        try Task.checkCancellation()
+        let values = [
+          scope.root.id.uuidString, scope.root.url.absoluteString, String(scope.prefix.count),
+          scope.prefix,
+        ]
+        let selected = "category=? AND root=? AND substr(url,1,?)=?"
+        let preservedFailure = """
+          NOT EXISTS (
+            SELECT 1 FROM incoming.scan_failures f
+            WHERE f.category=main.videos.category AND f.root=main.videos.root AND (
+              (f.is_directory=1 AND (main.videos.url=f.url_prefix OR
+                substr(main.videos.url,1,length(f.url_prefix))=f.url_prefix)) OR
+              (f.is_directory=0 AND (main.videos.url=f.url_prefix OR
+                main.videos.relative_path=f.relative_path)))
+          )
+          """
+        summary.removed += try count(
+          "SELECT COUNT(*) FROM main.videos WHERE \(selected) AND \(preservedFailure) AND NOT EXISTS(SELECT 1 FROM incoming.videos s WHERE s.category=main.videos.category AND s.url=main.videos.url)",
+          values)
+        try execute(
+          "DELETE FROM main.videos WHERE \(selected) AND \(preservedFailure) AND NOT EXISTS(SELECT 1 FROM incoming.videos s WHERE s.category=main.videos.category AND s.url=main.videos.url)",
+          values)
+
+        let folderSelected = "category=? AND root=? AND (url=? OR substr(url,1,?)=?)"
+        let folderValues = [
+          scope.root.id.uuidString, scope.root.url.absoluteString, scope.folder.absoluteString,
+          String(scope.prefix.count), scope.prefix,
+        ]
+        try execute(
+          """
+          DELETE FROM main.folders WHERE \(folderSelected)
+          AND NOT EXISTS(SELECT 1 FROM incoming.folders s WHERE s.category=main.folders.category AND s.url=main.folders.url)
+          AND NOT EXISTS(SELECT 1 FROM incoming.scan_failures f WHERE f.category=main.folders.category
+            AND f.root=main.folders.root AND f.is_directory=1
+            AND (main.folders.url=f.url_prefix OR substr(main.folders.url,1,length(f.url_prefix))=f.url_prefix))
+          """, folderValues)
+        try execute(
+          "INSERT OR REPLACE INTO main.folders SELECT * FROM incoming.folders WHERE \(folderSelected)",
+          folderValues)
+      }
+
+      for root in completedRoots {
+        try execute(
+          "INSERT OR REPLACE INTO main.source_scans VALUES(?,?,?)",
+          [root.id.uuidString, root.url.absoluteString, String(Date.now.timeIntervalSince1970)])
+      }
+      if summary.removed > 0 {
         try execute("UPDATE index_state SET revision=revision+1 WHERE id=1")
       }
     }
@@ -821,6 +1027,8 @@ actor LibraryIndexer {
   private let directoryService: DirectoryService?
   private let maximumConcurrentFolders: Int
   private(set) var summary = IndexRefreshSummary()
+  private var pendingValidRecords: [GlobalSearchResult] = []
+  private var fileFailures: [UUID: GlobalSearchFailure] = [:]
   init(directoryService: DirectoryService, maximumConcurrentFolders: Int = 2) {
     self.directoryService = directoryService
     self.scanner = nil
@@ -837,8 +1045,12 @@ actor LibraryIndexer {
     scopes: [IndexScope]? = nil, policies: IndexPolicies = .init(), automatic: Bool = false,
     full: Bool = false,
     concurrencyLimit: (@Sendable () async -> Int)? = nil,
+    onCommit: @escaping @Sendable () async -> Void = {},
     update: @escaping @Sendable (GlobalSearchSnapshot) async -> Void
   ) async throws -> GlobalSearchSnapshot {
+    summary = IndexRefreshSummary()
+    pendingValidRecords = []
+    fileFailures = [:]
     let selected = IndexScope.compact(scopes ?? roots.map { IndexScope(root: $0, folder: $0.url) })
     if selected.isEmpty {
       return GlobalSearchSnapshot(results: [], progress: .init(), failures: [])
@@ -864,21 +1076,101 @@ actor LibraryIndexer {
       throw LibraryIndexError.database("No directory loader available")
     }
     let selectedIDs = Set(selected.map { $0.root.id })
-    let snapshot = try await service.search(
+    let scanned = try await service.search(
       query: "", roots: roots.filter { selectedIDs.contains($0.id) }, matchAllVideos: true,
       scopes: selected,
-      batchSink: { batch in try await staged.upsert(batch, generation: generation) },
+      batchSink: { [weak self] batch in
+        guard let self else { throw CancellationError() }
+        try await self.writeScanBatch(
+          batch, staged: staged, index: index, roots: roots, generation: generation,
+          onCommit: onCommit)
+      },
+      batchSize: 500,
+      failedFolderSink: { root, url, relativePath in
+        try await staged.recordFailedFolder(root: root, url: url, relativePath: relativePath)
+      },
       concurrencyLimit: concurrencyLimit, update: update)
     try Task.checkCancellation()
-    let failed = Set(snapshot.failures.map(\.categoryID))
-    summary = try await index.publish(
-      stagingURL: staged.url, scopes: selected.filter { !failed.contains($0.root.id) },
-      generation: generation)
+    try await flushPendingRecords(index: index, generation: generation, onCommit: onCommit)
+    try Task.checkCancellation()
+    let failures = combinedFailures(scanned.failures)
+    var progress = scanned.progress
+    progress.failedSources = failures.count
+    let failedFolderIDs = Set(scanned.failures.map { $0.categoryID })
+    let completedRoots =
+      selected
+      .filter { $0.folder == $0.root.url && !failedFolderIDs.contains($0.root.id) }
+      .map(\.root)
+    let reconciled = try await index.reconcile(
+      stagingURL: staged.url, scopes: selected, completedRoots: completedRoots)
+    summary.removed = reconciled.removed
     if let loader {
       let scanned = await loader.summary
       summary.checked = scanned.checked
       summary.unchanged = scanned.unchanged
     }
-    return snapshot
+    return GlobalSearchSnapshot(results: scanned.results, progress: progress, failures: failures)
+  }
+
+  private func writeScanBatch(
+    _ batch: [GlobalSearchResult], staged: LibraryIndex, index: LibraryIndex,
+    roots: [GlobalSearchRoot], generation: UUID, onCommit: @Sendable () async -> Void
+  ) async throws {
+    let stagedWrite = try await staged.upsertDuringScan(batch, generation: generation)
+    try await staged.recordFailedFiles(stagedWrite.failures, roots: roots)
+    for failure in stagedWrite.failures { recordFileFailure(failure) }
+    pendingValidRecords.append(contentsOf: stagedWrite.validRecords)
+    while pendingValidRecords.count >= 500 {
+      try Task.checkCancellation()
+      let chunk = Array(pendingValidRecords.prefix(500))
+      pendingValidRecords.removeFirst(500)
+      let written = try await index.upsertValidated(chunk, generation: generation)
+      summary.added += written.added
+      summary.changed += written.changed
+      await onCommit()
+    }
+  }
+
+  private func flushPendingRecords(
+    index: LibraryIndex, generation: UUID, onCommit: @Sendable () async -> Void
+  ) async throws {
+    guard !pendingValidRecords.isEmpty else { return }
+    try Task.checkCancellation()
+    let remainder = pendingValidRecords
+    pendingValidRecords.removeAll(keepingCapacity: false)
+    let written = try await index.upsertValidated(remainder, generation: generation)
+    summary.added += written.added
+    summary.changed += written.changed
+    await onCommit()
+  }
+
+  private func recordFileFailure(_ failure: IndexRecordFailure) {
+    if var existing = fileFailures[failure.categoryID] {
+      existing.failedFiles += 1
+      fileFailures[failure.categoryID] = existing
+    } else {
+      fileFailures[failure.categoryID] = GlobalSearchFailure(
+        categoryID: failure.categoryID, categoryName: failure.categoryName,
+        failedFolders: 0, failedFiles: 1,
+        message: "\(failure.relativePath): \(failure.message)")
+    }
+  }
+
+  private func combinedFailures(_ folderFailures: [GlobalSearchFailure]) -> [GlobalSearchFailure] {
+    var combined = Dictionary(uniqueKeysWithValues: folderFailures.map { ($0.categoryID, $0) })
+    for (categoryID, fileFailure) in fileFailures {
+      if var existing = combined[categoryID] {
+        existing.failedFiles = fileFailure.failedFiles
+        if !fileFailure.message.isEmpty {
+          existing.message += "; file example: \(fileFailure.message)"
+        }
+        combined[categoryID] = existing
+      } else {
+        combined[categoryID] = fileFailure
+      }
+    }
+    return combined.values.sorted {
+      $0.categoryName.localizedStandardCompare($1.categoryName) == .orderedAscending
+    }
   }
 }

@@ -73,7 +73,7 @@ struct IndexRefreshSummary: Sendable {
   }
 }
 
-// Each refresh has its own folder cache writer; published snapshots remain immutable until promotion.
+// Folder snapshots stay staged until reconciliation; video rows commit to the main index in chunks.
 actor IndexListingLoader {
   let service: DirectoryService
   let active: LibraryIndex

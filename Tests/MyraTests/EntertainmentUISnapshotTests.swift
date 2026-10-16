@@ -175,6 +175,95 @@ final class EntertainmentUISnapshotTests: XCTestCase {
   }
 
   @MainActor
+  func testSettingsUsesSixNativeTabsAndPreservesSaveBehavior() async throws {
+    _ = NSApplication.shared
+    let directory = FileManager.default.temporaryDirectory.appending(
+      path: "Myra-settings-tabs-\(UUID())")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let library = LibraryController(
+      index: try LibraryIndex(url: directory.appending(path: "LibraryIndex.sqlite")))
+    let coordinator = AppCoordinator(
+      library: library, personalStorageURL: directory.appending(path: "Personal.json"),
+      automaticEnrichment: false)
+    let container = try AppPersistence.makeContainer(inMemory: true)
+    coordinator.configure(modelContext: container.mainContext)
+    library.cancel()
+    let settings = try XCTUnwrap(coordinator.settings)
+    settings.downloadDirectory = "/Volumes/Media/Movies"
+
+    let host = NSHostingView(
+      rootView: SettingsView(coordinator: coordinator, settings: settings)
+        .modelContainer(container)
+        .frame(minWidth: 760, minHeight: 600))
+    let window = NSWindow(
+      contentRect: NSRect(x: 100, y: 100, width: 920, height: 700),
+      styleMask: [.titled, .resizable, .closable], backing: .buffered, defer: false)
+    window.contentView = host
+    window.isReleasedWhenClosed = false
+    window.makeKeyAndOrderFront(nil)
+    defer { window.close() }
+    try await Task.sleep(for: .milliseconds(300))
+    host.layoutSubtreeIfNeeded()
+    guard let tabs = nativeSegmentedControl(in: host) else {
+      XCTFail(
+        "Could not find the Settings section picker; native controls: \(nativeViewSummary(in: host))"
+      )
+      await coordinator.shutdown()
+      return
+    }
+    let labels = ["General", "Library", "Downloads", "Playback", "Discovery", "Torrents"]
+    XCTAssertEqual(tabs.segmentCount, labels.count)
+    XCTAssertEqual((0..<tabs.segmentCount).map { tabs.label(forSegment: $0) }, labels)
+    XCTAssertFalse(tabs.isHidden)
+    XCTAssertTrue(host.bounds.intersects(tabs.convert(tabs.bounds, to: host)))
+    XCTAssertNotNil(tabs.action)
+    settings.connectionsPerFile = 13
+    for index in labels.indices {
+      tabs.selectedSegment = index
+      if let action = tabs.action { _ = NSApp.sendAction(action, to: tabs.target, from: tabs) }
+      host.layoutSubtreeIfNeeded()
+      XCTAssertEqual(tabs.selectedSegment, index)
+      XCTAssertEqual(settings.connectionsPerFile, 13)
+    }
+
+    settings.concurrentDownloads = 99
+    coordinator.saveSettings()
+    let savedSettings = try container.mainContext.fetch(FetchDescriptor<AppSettings>()).first
+    XCTAssertEqual(savedSettings?.concurrentDownloads, 20)
+    await coordinator.shutdown()
+  }
+
+  @MainActor
+  private func nativeSegmentedControl(in view: NSView) -> NSSegmentedControl? {
+    if let tabs = view as? NSSegmentedControl { return tabs }
+    for child in view.subviews {
+      if let tabs = nativeSegmentedControl(in: child) { return tabs }
+    }
+    return nil
+  }
+
+  @MainActor
+  private func nativeViewSummary(in root: NSView) -> String {
+    var pending = [root]
+    var descriptions: [String] = []
+    while !pending.isEmpty && descriptions.count < 100 {
+      let view = pending.removeFirst()
+      if let segmented = view as? NSSegmentedControl {
+        let labels = (0..<segmented.segmentCount).map { segmented.label(forSegment: $0) }
+        descriptions.append("NSSegmentedControl[\(labels)]")
+      } else if let button = view as? NSButton {
+        descriptions.append("NSButton[\(button.title)]")
+      } else {
+        descriptions.append(String(describing: type(of: view)))
+      }
+      pending.append(contentsOf: view.subviews)
+    }
+    return descriptions.joined(separator: " | ")
+  }
+
+  @MainActor
   private func renderHosted<V: View>(
     _ view: V, width: CGFloat, height: CGFloat, name: String, light: Bool = false,
     scroll: Bool = false

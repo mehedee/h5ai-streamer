@@ -281,28 +281,84 @@ final class LibraryIndexTests: XCTestCase {
     )
   }
 
-  func testStreamingWriteFailureRetainsPreviouslyIndexedFiles() async throws {
+  func testInvalidFileDoesNotAbortAndRetainsExistingRecordAtSameURL() async throws {
     let url = databaseURL()
     defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
     let index = try LibraryIndex(url: url)
     let source = root()
-    try await index.upsert([video(source, name: "Old.Movie.mkv")], generation: UUID())
+    let old = video(source, name: "Old.Movie.mkv")
+    try await index.upsert([old], generation: UUID())
     let scanner = GlobalSearchService { requested, _ in
       DirectoryListing(
         url: requested,
         entries: [
           DirectoryEntry(
-            name: "Outside.mkv", url: URL(string: "https://other.example/Outside.mkv")!, kind: .file
+            name: "injected/../Old.Movie.mkv", url: old.entry.url, kind: .file
           )
         ], artworkURL: nil)
     }
-    do {
-      _ = try await LibraryIndexer(scanner: scanner).refresh(
-        roots: [source], index: index, generation: UUID(), update: { _ in })
-      XCTFail("Unsafe write must fail the scan before pruning")
-    } catch {}
+    let snapshot = try await LibraryIndexer(scanner: scanner).refresh(
+      roots: [source], index: index, generation: UUID(), update: { _ in })
+    XCTAssertEqual(snapshot.failures.count, 1)
+    XCTAssertEqual(snapshot.failures.first?.failedFiles, 1)
+    XCTAssertTrue(snapshot.failures.first?.summary.contains("injected/../Old.Movie.mkv") == true)
     let retained = try await index.search("Old")
-    XCTAssertEqual(retained.count, 1)
+    XCTAssertEqual(retained, [old])
+  }
+
+  func testIndexerCommitsAtFiveHundredValidRecordsBeforeScanCompletes() async throws {
+    let url = databaseURL()
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+    let index = try LibraryIndex(url: url)
+    let source = root()
+    let old = video(source, name: "Old.Movie.mkv")
+    try await index.upsert([old], generation: UUID())
+    let invalid = DirectoryEntry(
+      name: "injected/../Bad.Movie.mkv", url: source.url.appending(path: "Bad.Movie.mkv"),
+      kind: .file)
+    let entries =
+      [invalid]
+      + (0..<1000).map { number in
+        DirectoryEntry(
+          name: "New.Movie.\(number).mkv",
+          url: source.url.appending(path: "New.Movie.\(number).mkv"),
+          kind: .file)
+      }
+    let scanner = GlobalSearchService { requested, _ in
+      DirectoryListing(url: requested, entries: entries, artworkURL: nil)
+    }
+    let visibility = CommitVisibility()
+    let indexer = LibraryIndexer(scanner: scanner)
+    let snapshot = try await indexer.refresh(
+      roots: [source], index: index, generation: UUID(),
+      update: { snapshot in
+        if snapshot.progress.matchesFound == 500 {
+          let beforeFiveHundredValid = try! await index.inventory()
+          XCTAssertEqual(beforeFiveHundredValid.count, 1)
+          XCTAssertTrue(beforeFiveHundredValid.contains { $0.media == old })
+        } else if snapshot.progress.matchesFound == 1000 {
+          let during = try! await index.inventory()
+          XCTAssertEqual(during.count, 501)
+          XCTAssertTrue(during.contains { $0.media == old })
+          XCTAssertEqual(during.filter { $0.media.entry.name.hasPrefix("New.Movie.") }.count, 500)
+          await visibility.markObserved()
+        }
+      })
+    XCTAssertEqual(snapshot.progress.matchesFound, 1001)
+    XCTAssertEqual(snapshot.failures.first?.failedFiles, 1)
+    let observed = await visibility.wasObserved
+    XCTAssertTrue(observed, "The first 500 records must be readable before traversal finishes")
+    let after = try await index.inventory()
+    XCTAssertEqual(after.count, 1000)
+    XCTAssertFalse(after.contains { $0.media == old })
+    let summary = await indexer.summary
+    XCTAssertEqual(summary.added, 1000)
+    XCTAssertEqual(summary.removed, 1)
+  }
+
+  private actor CommitVisibility {
+    private(set) var wasObserved = false
+    func markObserved() { wasObserved = true }
   }
 
   func testBulkCatalogueMetadataQueriesScaleByBatchAndPreserveMetadata() async throws {
@@ -393,14 +449,14 @@ final class LibraryIndexTests: XCTestCase {
     XCTAssertEqual(Set(inventory.map { $0.media }), Set([keep, fresh, unrelated]))
   }
 
-  func testStagingIsInvisibleDuringScanAndCancellationDiscardsIt() async throws {
+  func testCancellationKeepsCommittedChunksAndSkipsUnfinishedCleanup() async throws {
     let url = databaseURL()
     defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
     let index = try LibraryIndex(url: url)
     let source = root()
     let old = video(source, name: "Old.Movie.mkv")
     try await index.upsert([old], generation: UUID())
-    let files = (0..<300).map { video(source, name: "New.Movie.\($0).mkv").entry }
+    let files = (0..<600).map { video(source, name: "New.Movie.\($0).mkv").entry }
     let scanner = GlobalSearchService { requested, _ in
       DirectoryListing(url: requested, entries: files, artworkURL: nil)
     }
@@ -408,9 +464,11 @@ final class LibraryIndexTests: XCTestCase {
       try await LibraryIndexer(scanner: scanner).refresh(
         roots: [source], index: index, generation: UUID()
       ) { snapshot in
-        if snapshot.progress.matchesFound == 300 {
+        if snapshot.progress.matchesFound == 600 {
           let during = try! await index.inventory()
-          XCTAssertEqual(during.map(\.media), [old], "Staged batches must be invisible")
+          XCTAssertEqual(during.count, 501, "The first full chunk is already committed")
+          XCTAssertTrue(
+            during.contains { $0.media == old }, "Incomplete scans must not prune old rows")
           withUnsafeCurrentTask { $0?.cancel() }
         }
       }
@@ -420,7 +478,9 @@ final class LibraryIndexTests: XCTestCase {
       XCTFail("Cancelled refresh published")
     } catch is CancellationError {} catch { XCTFail("Unexpected error: \(error)") }
     let after = try await index.inventory()
-    XCTAssertEqual(after.map(\.media), [old])
+    XCTAssertEqual(after.count, 501)
+    XCTAssertTrue(after.contains { $0.media == old })
+    XCTAssertEqual(after.filter { $0.media.entry.name.hasPrefix("New.Movie.") }.count, 500)
   }
 
   func testUnchangedPromotionKeepsRevisionAndDiscoveryDate() async throws {
@@ -446,13 +506,13 @@ final class LibraryIndexTests: XCTestCase {
     XCTAssertEqual(summary.added + summary.changed + summary.removed, 0)
   }
 
-  func testFailedSourcePublishesNoPartialChangesButSuccessfulSourceCompletes() async throws {
+  func testFailedFolderDoesNotBlockSuccessfulSiblingOrOtherSources() async throws {
     let url = databaseURL()
     defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
     let index = try LibraryIndex(url: url)
     let bad = root("Bad")
     let good = root("Good")
-    let old = video(bad, name: "Old.Movie.mkv")
+    let old = video(bad, name: "Old.Movie.mkv", folder: "Broken")
     try await index.upsert([old], generation: UUID())
     let scanner = GlobalSearchService { requested, boundary in
       if requested == bad.url {
@@ -477,7 +537,10 @@ final class LibraryIndexTests: XCTestCase {
       roots: [bad, good], index: index, generation: UUID(), update: { _ in })
     let after = try await index.inventory()
     XCTAssertEqual(snapshot.failures.count, 1)
-    XCTAssertEqual(after.filter { $0.media.categoryID == bad.id }.map(\.media), [old])
+    let expectedNewURL = bad.url.appending(path: "New.Movie.mkv")
+    XCTAssertEqual(
+      Set(after.filter { $0.media.categoryID == bad.id }.map { $0.media.entry.url }),
+      Set([old.entry.url, expectedNewURL]))
     XCTAssertEqual(after.filter { $0.media.categoryID == good.id }.count, 1)
   }
 

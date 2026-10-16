@@ -46,6 +46,8 @@ final class LibraryController: ObservableObject {
   private var openTask: Task<LibraryIndex, Error>?
   private var refreshTask: Task<Void, Never>?
   private var refreshID = UUID()
+  private var lastIndexNotification = Date.distantPast
+  private var pendingIndexNotification: Task<Void, Never>?
   enum IndexingMode: String, CaseIterable {
     case balanced = "Balanced"
     case lowImpact = "Low Impact"
@@ -64,6 +66,26 @@ final class LibraryController: ObservableObject {
   private var lastProgressUpdate = Date.distantPast
   private let logger = Logger(subsystem: "Myra", category: "Indexing")
   var didUpdate: (() -> Void)?
+
+  /// Coalesces catalogue reloads while making chunk commits visible during long scans.
+  private func notifyIndexUpdated() {
+    let delay = 750 - Int(Date.now.timeIntervalSince(lastIndexNotification) * 1000)
+    if delay <= 0 {
+      pendingIndexNotification?.cancel()
+      pendingIndexNotification = nil
+      lastIndexNotification = .now
+      didUpdate?()
+      return
+    }
+    guard pendingIndexNotification == nil else { return }
+    pendingIndexNotification = Task { [weak self] in
+      try? await Task.sleep(for: .milliseconds(delay))
+      guard let self else { return }
+      self.pendingIndexNotification = nil
+      self.lastIndexNotification = .now
+      self.didUpdate?()
+    }
+  }
 
   init(index: LibraryIndex? = nil) { self.index = index }
 
@@ -130,7 +152,7 @@ final class LibraryController: ObservableObject {
           isRefreshing = false
           refreshTask = nil
           if manual { completionMessage = "All scheduled folders are up to date." }
-          if try await index.revision() != previousRevision { didUpdate?() }
+          if try await index.revision() != previousRevision { notifyIndexUpdated() }
           return
         }
         failures = []
@@ -150,6 +172,9 @@ final class LibraryController: ObservableObject {
                 mode: self.indexingMode, playing: self.isPlaying?() == true,
                 lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
             }
+          },
+          onCommit: { [weak self] in
+            await MainActor.run { self?.notifyIndexUpdated() }
           }
         ) {
           [weak self] snapshot in
@@ -174,11 +199,11 @@ final class LibraryController: ObservableObject {
           let suffix =
             failures.isEmpty
             ? ""
-            : " \(failures.count) source(s) could not be fully refreshed; previous records were retained."
+            : " Issues: \(failures.map(\.summary).joined(separator: "; ")). Existing records for those paths were retained."
           completionMessage = await indexer.summary.text + suffix
         }
       } catch is CancellationError {
-        // Staging is discarded; the published index remains intact.
+        // Full chunks already committed to the main index remain visible.
       } catch {
         guard refreshID == id else { return }
         errorMessage = error.localizedDescription
@@ -189,7 +214,7 @@ final class LibraryController: ObservableObject {
       refreshTask = nil
       isPaused = false
       await loadFolderRows()
-      if changed { didUpdate?() }
+      if changed { notifyIndexUpdated() }
     }
   }
 
@@ -204,7 +229,7 @@ final class LibraryController: ObservableObject {
       await previous?.value
       guard let self, self.refreshID == id else { return }
       self.refreshTask = nil
-      // All scan writes were staged; no catalogue reload is needed on cancellation.
+      // Any committed chunks already scheduled their catalogue reload notification.
     }
   }
 }

@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.3 (build 11) — 2026-10-16
+
+- Group Settings into six visible, named tabs while preserving the shared save behavior.
+- Continue indexing after individual file/folder failures and commit each 500 valid video records to the main database; incomplete scopes are retained and only completed scans reconcile stale rows.
+- Add experimental opt-in torrent discovery and transfers, including safe video selection, embedded VLC streaming, per-session networking consent, cache controls, and paused restart recovery.
+- Point Sparkle and release-feed links at the canonical Myra GitHub repository.
+
 ## 3.0.2 (build 10) — 2026-10-10
 
 - Add confirmed Continue Watching clearing across personal history, SQLite and Home cache; preserve finished/watched records and active playback.

@@ -196,7 +196,7 @@ struct LibraryIndexStatusView: View {
       if !library.failures.isEmpty {
         Menu("\(library.failures.count) unavailable") {
           ForEach(library.failures) { failure in
-            Text("\(failure.categoryName): \(failure.message)")
+            Text("\(failure.categoryName): \(failure.summary)")
           }
         }.foregroundStyle(.orange)
       }

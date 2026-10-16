@@ -7,7 +7,7 @@ import SwiftUI
 /// Build-time trust configuration. Neither the feed nor the trusted key is user-overridable.
 struct UpdateConfiguration {
   static let feedURL = URL(
-    string: "https://github.com/mehedee/h5ai-streamer/releases/latest/download/appcast.xml")!
+    string: "https://github.com/mehedee/myra/releases/latest/download/appcast.xml")!
   static func problem(in info: [String: Any]) -> String? {
     guard let raw = info["SUFeedURL"] as? String, let url = URL(string: raw),
       url.scheme == "https", url.host != nil, url.user == nil, url.password == nil

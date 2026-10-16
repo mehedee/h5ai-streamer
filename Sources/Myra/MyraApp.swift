@@ -174,7 +174,7 @@ struct MyraApp: App {
       if let settings = coordinator.settings {
         SettingsView(coordinator: coordinator, settings: settings)
           .modelContainer(container)
-          .frame(width: 620, height: 520)
+          .frame(minWidth: 760, minHeight: 600)
       } else {
         ProgressView().frame(width: 400, height: 260)
       }

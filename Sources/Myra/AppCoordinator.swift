@@ -43,6 +43,7 @@ final class AppCoordinator: ObservableObject {
   let library: LibraryController
   let inspector = MediaInspectorModel()
   let player = EmbeddedPlayerModel()
+  let torrents = TorrentController()
   let updater = AppUpdater()
   private let personalStorageURL: URL?
   private let automaticEnrichment: Bool
@@ -76,6 +77,10 @@ final class AppCoordinator: ObservableObject {
     self.automaticEnrichment = automaticEnrichment
     self.library = library
     self.personalStorageURL = personalStorageURL
+    if let personalStorageURL {
+      torrents.storageURL =
+        personalStorageURL.deletingLastPathComponent().appending(path: "Torrents")
+    }
   }
 
   func configure(modelContext: ModelContext) {
@@ -111,15 +116,36 @@ final class AppCoordinator: ObservableObject {
         }
       }
       player.onPositionChanged = { [weak self] media, seconds, duration in
+        if self?.torrents.isTorrent(media) == true {
+          self?.torrents.record(media, seconds: seconds, duration: duration)
+          return
+        }
         self?.entertainment.recordPlayback(media: media, seconds: seconds, duration: duration)
       }
       player.onPlaybackEnded = { [weak self] media in
+        guard self?.torrents.isTorrent(media) != true else { return }
         self?.entertainment.markPlaybackEnded(media: media)
       }
-      player.onPlaybackStarted = { [weak self] media in self?.entertainment.beginPlayback(media) }
-      player.shouldRecordPosition = { [weak self] media in
-        self?.entertainment.shouldRecordPlayback(media) ?? true
+      player.onPlaybackStarted = { [weak self] media in
+        guard self?.torrents.isTorrent(media) != true else { return }
+        self?.entertainment.beginPlayback(media)
       }
+      player.shouldRecordPosition = { [weak self] media in
+        if self?.torrents.isTorrent(media) == true { return false }
+        return self?.entertainment.shouldRecordPlayback(media) ?? true
+      }
+      player.externalCompletion = { [weak self] media in
+        guard let self, self.torrents.isTorrent(media) else { return nil }
+        return self.torrents.ended(media)
+      }
+      player.onPlayerClosed = { [weak self] in self?.torrents.playerClosed() }
+      torrents.playStream = { [weak self] media, resume in
+        guard let self else { return }
+        self.player.start(media, library: self.library, resumeSeconds: resume ?? 0)
+      }
+      torrents.closePlayer = { [weak self] in self?.player.close() }
+      torrents.playerAutoplay = { [weak self] in self?.player.personalState.autoplay ?? false }
+      Task { await torrents.load() }
       library.refresh(
         roots: searchRoots, onlyIfDue: true,
         prepare: { [weak self] in
@@ -844,6 +870,7 @@ final class AppCoordinator: ObservableObject {
   }
 
   func shutdown() async {
+    torrents.shutdown()
     playbackChoiceTask?.cancel()
     player.close()
     inspector.close()
@@ -854,6 +881,7 @@ final class AppCoordinator: ObservableObject {
   }
 
   func terminateImmediately() {
+    torrents.shutdown()
     playbackChoiceTask?.cancel()
     player.close()
     inspector.close()

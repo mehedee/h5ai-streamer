@@ -89,9 +89,18 @@ struct GlobalSearchFailure: Identifiable, Hashable, Sendable {
   let categoryID: UUID
   let categoryName: String
   var failedFolders: Int
+  var failedFiles: Int = 0
   var message: String
 
   var id: UUID { categoryID }
+
+  var summary: String {
+    var counts: [String] = []
+    if failedFolders > 0 { counts.append("\(failedFolders) folder(s)") }
+    if failedFiles > 0 { counts.append("\(failedFiles) file(s)") }
+    let prefix = counts.isEmpty ? "Indexing issue" : counts.joined(separator: ", ")
+    return "\(prefix) — \(message)"
+  }
 }
 
 struct GlobalSearchProgress: Equatable, Sendable {

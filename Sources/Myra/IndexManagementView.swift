@@ -27,7 +27,7 @@ struct IndexManagementView: View {
                 library.folderRows.first { $0.scope == rootScope }
                   ?? IndexFolderRow(scope: rootScope, checked: nil, files: 0), name: root.name)
               if let failure = library.failures.first(where: { $0.categoryID == root.id }) {
-                Text(failure.message).font(.caption).foregroundStyle(.orange)
+                Text(failure.summary).font(.caption).foregroundStyle(.orange)
               }
               DisclosureGroup(
                 isExpanded: Binding(

@@ -6,6 +6,7 @@ private enum AppSection: String, CaseIterable, Identifiable {
   case home = "Home"
   case library = "Library"
   case offline = "Offline Library"
+  case torrents = "Torrents"
   case settings = "Settings"
 
   var id: String { rawValue }
@@ -14,6 +15,7 @@ private enum AppSection: String, CaseIterable, Identifiable {
     case .home: "house"
     case .library: "folder"
     case .offline: "externaldrive"
+    case .torrents: "network"
     case .settings: "gearshape"
     }
   }
@@ -56,6 +58,8 @@ struct RootView: View {
                   LibraryPlayerContainer(coordinator: coordinator)
                 case .offline:
                   OfflineLibraryView(coordinator: coordinator)
+                case .torrents:
+                  TorrentsView(controller: coordinator.torrents)
                 case .settings:
                   if let settings = coordinator.settings {
                     SettingsView(coordinator: coordinator, settings: settings)
@@ -579,9 +583,7 @@ struct LibraryView: View {
         if !coordinator.globalSearchFailures.isEmpty {
           Menu {
             ForEach(coordinator.globalSearchFailures) { failure in
-              Text(
-                "\(failure.categoryName): \(failure.failedFolders) folder(s) — \(failure.message)"
-              )
+              Text("\(failure.categoryName): \(failure.summary)")
             }
           } label: {
             Label(
@@ -1317,52 +1319,133 @@ private struct DownloadControlButton: View {
   }
 }
 
+private enum SettingsTab: String, CaseIterable {
+  case general, library, downloads, playback, discovery, torrents
+
+  var title: String {
+    switch self {
+    case .general: "General"
+    case .library: "Library"
+    case .downloads: "Downloads"
+    case .playback: "Playback"
+    case .discovery: "Discovery"
+    case .torrents: "Torrents"
+    }
+  }
+
+  var symbol: String {
+    switch self {
+    case .general: "gearshape"
+    case .library: "books.vertical"
+    case .downloads: "arrow.down.circle"
+    case .playback: "play.rectangle"
+    case .discovery: "sparkles"
+    case .torrents: "network"
+    }
+  }
+}
+
 struct SettingsView: View {
   @ObservedObject var coordinator: AppCoordinator
   @Bindable var settings: AppSettings
+  @State private var selectedTab: SettingsTab = .general
 
   var body: some View {
-    Form {
-      MediaSettingsSection(library: coordinator.library, refresh: coordinator.refreshLibraryIndex)
-      MyraAppearanceSettingsSection()
-      UpdateSettingsSection(updater: coordinator.updater)
-      SubtitleSettingsSection()
-      DiscoverySettingsSection(store: coordinator.entertainment, player: coordinator.player)
-      Section("Downloads") {
-        LabeledContent("Directory") {
-          HStack {
-            Text(settings.downloadDirectory).lineLimit(1).truncationMode(.middle)
-            Button("Choose…") { coordinator.chooseDownloadDirectory() }
+    TabView(selection: $selectedTab) {
+      Form {
+        MyraAppearanceSettingsSection()
+        UpdateSettingsSection(updater: coordinator.updater)
+      }
+      .formStyle(.grouped)
+      .tabItem { Label(SettingsTab.general.title, systemImage: SettingsTab.general.symbol) }
+      .tag(SettingsTab.general)
+
+      Form {
+        MediaSettingsSection(library: coordinator.library, refresh: coordinator.refreshLibraryIndex)
+      }
+      .formStyle(.grouped)
+      .tabItem { Label(SettingsTab.library.title, systemImage: SettingsTab.library.symbol) }
+      .tag(SettingsTab.library)
+
+      Form {
+        Section("Downloads") {
+          LabeledContent("Directory") {
+            HStack {
+              Text(settings.downloadDirectory).lineLimit(1).truncationMode(.middle)
+              Button("Choose…") { coordinator.chooseDownloadDirectory() }
+            }
           }
+          LabeledContent("aria2c") {
+            TextField("Auto-detect", text: $settings.aria2PathOverride)
+              .textFieldStyle(.roundedBorder).frame(minWidth: 280)
+          }
+          Text("Leave the aria2 path empty to search PATH and common Homebrew locations.")
+            .font(.caption).foregroundStyle(.secondary)
         }
-        LabeledContent("aria2c") {
-          TextField("Auto-detect", text: $settings.aria2PathOverride)
-            .textFieldStyle(.roundedBorder).frame(minWidth: 280)
+        Section("Advanced Performance") {
+          Stepper(
+            "Simultaneous files: \(settings.concurrentDownloads)",
+            value: $settings.concurrentDownloads, in: 1...20)
+          Stepper(
+            "Connections per file: \(settings.connectionsPerFile)",
+            value: $settings.connectionsPerFile, in: 1...16)
+          Stepper("Split count: \(settings.splitCount)", value: $settings.splitCount, in: 1...16)
+          Stepper("Retry count: \(settings.retryCount)", value: $settings.retryCount, in: 1...20)
+          LabeledContent("Per-file speed limit") {
+            TextField("0 (unlimited)", text: $settings.speedLimit).frame(width: 150)
+          }
+          Text("aria2 accepts values such as 0, 500K, or 10M.")
+            .font(.caption).foregroundStyle(.secondary)
         }
-        Text("Leave the aria2 path empty to search PATH and common Homebrew locations.")
-          .font(.caption).foregroundStyle(.secondary)
       }
-      Section("Advanced Performance") {
-        Stepper(
-          "Simultaneous files: \(settings.concurrentDownloads)",
-          value: $settings.concurrentDownloads, in: 1...20)
-        Stepper(
-          "Connections per file: \(settings.connectionsPerFile)",
-          value: $settings.connectionsPerFile, in: 1...16)
-        Stepper("Split count: \(settings.splitCount)", value: $settings.splitCount, in: 1...16)
-        Stepper("Retry count: \(settings.retryCount)", value: $settings.retryCount, in: 1...20)
-        LabeledContent("Per-file speed limit") {
-          TextField("0 (unlimited)", text: $settings.speedLimit).frame(width: 150)
-        }
-        Text("aria2 accepts values such as 0, 500K, or 10M.")
-          .font(.caption).foregroundStyle(.secondary)
+      .formStyle(.grouped)
+      .tabItem { Label(SettingsTab.downloads.title, systemImage: SettingsTab.downloads.symbol) }
+      .tag(SettingsTab.downloads)
+
+      Form {
+        SubtitleSettingsSection()
       }
-      HStack {
-        Spacer()
-        Button("Save Settings") { coordinator.saveSettings() }.buttonStyle(.borderedProminent)
+      .formStyle(.grouped)
+      .tabItem { Label(SettingsTab.playback.title, systemImage: SettingsTab.playback.symbol) }
+      .tag(SettingsTab.playback)
+
+      Form {
+        DiscoverySettingsSection(store: coordinator.entertainment, player: coordinator.player)
+      }
+      .formStyle(.grouped)
+      .tabItem { Label(SettingsTab.discovery.title, systemImage: SettingsTab.discovery.symbol) }
+      .tag(SettingsTab.discovery)
+
+      Form {
+        TorrentSettingsSection(controller: coordinator.torrents)
+      }
+      .formStyle(.grouped)
+      .tabItem { Label(SettingsTab.torrents.title, systemImage: SettingsTab.torrents.symbol) }
+      .tag(SettingsTab.torrents)
+    }
+    .safeAreaInset(edge: .top, spacing: 0) {
+      Picker("Settings sections", selection: $selectedTab) {
+        ForEach(SettingsTab.allCases, id: \.self) { tab in
+          Text(tab.title).tag(tab)
+        }
+      }
+      .pickerStyle(.segmented)
+      .labelsHidden()
+      .accessibilityLabel("Settings sections")
+      .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 8)
+    }
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      VStack(spacing: 0) {
+        Divider()
+        HStack {
+          Text(selectedTab.title).foregroundStyle(.secondary)
+          Spacer()
+          Button("Save Settings") { coordinator.saveSettings() }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(.horizontal, 20).padding(.vertical, 12)
       }
     }
-    .formStyle(.grouped)
     .navigationTitle("Settings")
   }
 }

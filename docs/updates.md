@@ -6,7 +6,7 @@ enabled initially, can be disabled, and are scheduled by Sparkle at daily interv
 while Myra is open. The preference and last check survive app restarts. Quiet check
 failures are visible in Settings; manual checks show Sparkle's error dialog.
 
-The feed is `https://github.com/mehedee/h5ai-streamer/releases/latest/download/appcast.xml`.
+The feed is `https://github.com/mehedee/myra/releases/latest/download/appcast.xml`.
 Each release downloads from its immutable version tag, rather than the latest DMG.
 The app embeds a public Ed25519 key; its private counterpart stays in the login
 Keychain under account `com.mehedee.Myra`. Never export that private key into the

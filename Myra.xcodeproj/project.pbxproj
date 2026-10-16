@@ -6,6 +6,14 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		FB20000000000000000000001 /* TorrentController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB10000000000000000000001; };
+		FB20000000000000000000002 /* TorrentEngineClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB10000000000000000000002; };
+		FB20000000000000000000003 /* TorrentDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB10000000000000000000003; };
+		FB20000000000000000000004 /* TorrentViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB10000000000000000000004; };
+		FA20000000000000000000001 /* TorrentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA10000000000000000000001; };
+		FA20000000000000000000002 /* TorrentDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA10000000000000000000002; };
+		FA20000000000000000000003 /* TorrentCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA10000000000000000000003; };
+		FA20000000000000000000004 /* TorrentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA10000000000000000000004; };
         F52000000000000000000001 = {isa = PBXBuildFile; fileRef = F51000000000000000000001; };
         F52000000000000000000002 = {isa = PBXBuildFile; productRef = F53000000000000000000002; };
 		A00100000000000000000019 = {isa = PBXBuildFile; fileRef = B00100000000000000000019; };
@@ -82,6 +90,14 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		FB10000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentController.swift; sourceTree = "<group>"; };
+		FB10000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentEngineClient.swift; sourceTree = "<group>"; };
+		FB10000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentDiscovery.swift; sourceTree = "<group>"; };
+		FB10000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentViews.swift; sourceTree = "<group>"; };
+		FA10000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentModels.swift; sourceTree = "<group>"; };
+		FA10000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentDatabase.swift; sourceTree = "<group>"; };
+		FA10000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentCache.swift; sourceTree = "<group>"; };
+		FA10000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentTests.swift; sourceTree = "<group>"; };
         F51000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdater.swift; sourceTree = "<group>"; };
 		B00100000000000000000019 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSequence.swift; sourceTree = "<group>"; };
 		B00100000000000000000020 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerWindowAttachment.swift; sourceTree = "<group>"; };
@@ -190,6 +206,13 @@
 		C01000000000000000000002 /* Myra */ = {
 			isa = PBXGroup;
 			children = (
+				FB10000000000000000000001,
+				FB10000000000000000000002,
+				FB10000000000000000000003,
+				FB10000000000000000000004,
+				FA10000000000000000000001,
+				FA10000000000000000000002,
+				FA10000000000000000000003,
                 F51000000000000000000001,
 				F41000000000000000000001,
 				F41000000000000000000002,
@@ -243,6 +266,7 @@
 		C01000000000000000000004 /* MyraTests */ = {
 			isa = PBXGroup;
 			children = (
+				FA10000000000000000000004,
 				B00200000000000000000001,
 				F41000000000000000000012,
 				F41000000000000000000011,
@@ -273,7 +297,7 @@
 		C00200000000000000000001 /* Myra */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = G00100000000000000000001 /* Build configuration list for PBXNativeTarget "Myra" */;
-			buildPhases = (E00100000000000000000001 /* Sources */, E00100000000000000000002 /* Frameworks */, E00100000000000000000003 /* Resources */, E00100000000000000000004,);
+			buildPhases = (E00100000000000000000001 /* Sources */, E00100000000000000000002 /* Frameworks */, E00100000000000000000003 /* Resources */, E00100000000000000000004, FB30000000000000000000001,);
 			buildRules = ();
 			dependencies = ();
 			name = Myra;
@@ -331,11 +355,32 @@ F44000000000000000000001, F44000000000000000000002,
 		E00200000000000000000003 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+        FB30000000000000000000001 = {
+            isa = PBXShellScriptBuildPhase;
+            buildActionMask = 2147483647;
+            files = ();
+            inputPaths = ("$(SRCROOT)/Native/TorrentEngine/main.cpp", "$(SRCROOT)/Native/TorrentEngine/LoopbackStream.hpp", "$(SRCROOT)/Native/TorrentEngine/VerifiedPieceBroker.hpp", "$(SRCROOT)/Native/TorrentEngine/HTTPRange.hpp", "$(SRCROOT)/Scripts/build-torrent-engine.sh", "$(SRCROOT)/Scripts/bundle-torrent-engine.sh");
+            name = "Bundle Torrent Engine";
+            outputPaths = ("$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/myra-torrent-engine");
+            runOnlyForDeploymentPostprocessing = 0;
+            shellPath = /bin/sh;
+            shellScript = "sh \"$SRCROOT/Scripts/bundle-torrent-engine.sh\"\n";
+        };
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		E00100000000000000000001 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FB20000000000000000000001,
+				FB20000000000000000000002,
+				FB20000000000000000000003,
+				FB20000000000000000000004,
+				FA20000000000000000000001,
+				FA20000000000000000000002,
+				FA20000000000000000000003,
                 F52000000000000000000001,
 				F42000000000000000000001,
 				F42000000000000000000002,
@@ -382,6 +427,7 @@ F44000000000000000000001, F44000000000000000000002,
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FA20000000000000000000004,
 				F42000000000000000000007,
 				F42000000000000000000008,
 				F42000000000000000000012,
@@ -412,7 +458,7 @@ F44000000000000000000001, F44000000000000000000002,
 			ASSETCATALOG_COMPILER_APPICON_NAME = signature;
 			ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 			CODE_SIGNING_ALLOWED = NO;
-			CURRENT_PROJECT_VERSION = 10;
+			CURRENT_PROJECT_VERSION = 11;
 			ENABLE_APP_SANDBOX = NO;
 			ENABLE_TESTABILITY = YES;
 			SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Sources/CSQLite";
@@ -422,7 +468,7 @@ F44000000000000000000001, F44000000000000000000002,
 			INFOPLIST_KEY_CFBundleDisplayName = Myra;
 			INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 			LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
-			MARKETING_VERSION = 3.0.2;
+			MARKETING_VERSION = 3.0.3;
 			PRODUCT_BUNDLE_IDENTIFIER = com.mehedee.Myra;
 			PRODUCT_MODULE_NAME = Myra;
 			PRODUCT_NAME = Myra;
@@ -433,7 +479,7 @@ F44000000000000000000001, F44000000000000000000002,
 			ASSETCATALOG_COMPILER_APPICON_NAME = signature;
 			ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 			CODE_SIGNING_ALLOWED = NO;
-			CURRENT_PROJECT_VERSION = 10;
+			CURRENT_PROJECT_VERSION = 11;
 			ENABLE_APP_SANDBOX = NO;
 			SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Sources/CSQLite";
 			OTHER_LDFLAGS = "$(inherited) -lsqlite3";
@@ -442,7 +488,7 @@ F44000000000000000000001, F44000000000000000000002,
             INFOPLIST_FILE = "Config/Myra-Info.plist";
 			INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 			LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
-			MARKETING_VERSION = 3.0.2;
+			MARKETING_VERSION = 3.0.3;
 			PRODUCT_BUNDLE_IDENTIFIER = com.mehedee.Myra;
 			PRODUCT_MODULE_NAME = Myra;
 			PRODUCT_NAME = Myra;

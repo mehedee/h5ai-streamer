@@ -276,6 +276,8 @@ actor GlobalSearchService {
     matchAllVideos: Bool = false,
     scopes: [IndexScope]? = nil,
     batchSink: (@Sendable ([GlobalSearchResult]) async throws -> Void)? = nil,
+    batchSize: Int = 250,
+    failedFolderSink: (@Sendable (GlobalSearchRoot, URL, String) async throws -> Void)? = nil,
     concurrencyLimit: (@Sendable () async -> Int)? = nil,
     update: @escaping @Sendable (GlobalSearchSnapshot) async -> Void
   ) async throws -> GlobalSearchSnapshot {
@@ -377,16 +379,23 @@ actor GlobalSearchService {
               )
               if resultIDs.insert(result.id).inserted {
                 results.append(result)
-                if let batchSink, results.count >= 250 {
+                if let batchSink, results.count >= max(1, batchSize) {
                   try await batchSink(results)
                   results.removeAll(keepingCapacity: true)
                   await Task.yield()
+                  progress.matchesFound = resultIDs.count
+                  await update(
+                    snapshot(
+                      results: [], progress: progress,
+                      failures: failures, sorted: !matchAllVideos))
                 }
               }
             }
           }
         case .failure(let failedFolder, let message):
           folder = failedFolder
+          try await failedFolderSink?(
+            folder.root, folder.url, folder.relativeComponents.joined(separator: "/"))
           if var failure = failures[folder.root.id] {
             failure.failedFolders += 1
             failures[folder.root.id] = failure
@@ -418,6 +427,11 @@ actor GlobalSearchService {
     if let batchSink, !results.isEmpty {
       try await batchSink(results)
       results.removeAll(keepingCapacity: false)
+      progress.matchesFound = resultIDs.count
+      await update(
+        snapshot(
+          results: [], progress: progress,
+          failures: failures, sorted: !matchAllVideos))
     }
     return snapshot(
       results: batchSink == nil ? results : [], progress: progress, failures: failures,

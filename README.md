@@ -1,6 +1,8 @@
 # Myra
 
-**Myra 3.0.2 · build 10** — a personal native macOS entertainment library, player, and downloader. Browse h5ai, Apache, and nginx HTTP directory listings, organise movies and series, and play directly from your sources or completed downloads.
+**Myra 3.0.3 · build 11** — a personal native macOS entertainment library, player, and downloader. Browse h5ai, Apache, and nginx HTTP directory listings, organise movies and series, and play directly from your sources or completed downloads.
+
+Version 3.0.3 adds tabbed Settings, resilient incremental library indexing, and experimental torrent discovery and playback. Torrent networking is opt-in for each session; discovery searches run only when requested. Existing HTTP library, player, downloads and updater remain available.
 
 ## Requirements and installation
 
@@ -137,10 +139,19 @@ A search/pick/plan may use two model generations (intent extraction and results)
 - Global search is the default, with **Fuzzy** enabled and an exact-mode toggle.
 - Three-character minimum, local typo tolerance, reordered tokens, Unicode normalization, filenames and matched metadata aliases, deterministic ordering, and 500-result pages.
 - SQLite precomputed search grams bound candidate retrieval; broad queries return the highest-ranked candidates from a bounded set.
-- Home opens from the last completed index while refreshes scan changes. New data replaces the relevant saved scope only after a successful scan; incomplete scans retain existing records.
+- Home opens from the saved index while refreshes scan changes. Valid video records are written to the main index in 500-record chunks while scanning continues. A file or directory failure is reported without stopping other work; prior rows covered by failed paths are retained. Stale-row reconciliation runs only after traversal completes, while cancellation keeps committed chunks and skips reconciliation. Database/storage failures still stop the refresh.
 - Per-source/folder schedules and manual selective refresh, cached listing validators where supported, force rescans, cancellation, progress, and unavailable-source guidance.
 - The footer refresh control opens indexing options. Low Impact indexing reduces concurrency and UI update churn.
 - Separate personal history survives rebuilding the index. Schema 4 adds search documents and backs up an older database before migration.
+
+Settings are grouped into six visible tabs: General, Library, Downloads, Playback, Discovery, and Torrents. The existing Save Settings action remains available across sections.
+
+## Experimental torrent discovery and playback
+
+- Search curated open movies, Internet Archive items with declared open licenses, or user-configured Torznab sources. Searches run on request; Torznab API keys are stored in the Mac's Keychain.
+- Import a `.torrent` file or add a magnet link, select video files, and stream through embedded VLC while managing transfers, cache limits, and seeding preferences.
+- Torrent networking stays off until enabled for the current session. Peers and trackers can see your IP address. Verify source rights and only use content you are permitted to access.
+- Saved transfers restart paused. The automated suite uses isolated fixtures; it does not validate public swarms or provider availability.
 
 ## Playback and subtitles
 

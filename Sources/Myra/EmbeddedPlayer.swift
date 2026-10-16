@@ -125,6 +125,8 @@ final class EmbeddedPlayerModel: ObservableObject {
   private var choosingInitialLocalVersion = false
   @Published var personalState = PlayerPersonalState.load()
   var onPlaybackEnded: ((GlobalSearchResult) -> Void)?
+  var externalCompletion: ((GlobalSearchResult) -> Bool?)?
+  var onPlayerClosed: (() -> Void)?
   var onPlaybackStarted: ((GlobalSearchResult) -> Void)?
   var shouldRecordPosition: ((GlobalSearchResult) -> Bool)?
   var onPositionChanged: ((GlobalSearchResult, Double, Double) -> Void)?
@@ -624,6 +626,7 @@ final class EmbeddedPlayerModel: ObservableObject {
     engine?.drawable = nil
     engine = nil
     media = nil
+    onPlayerClosed?()
     isPlaying = false
     resumePosition = nil
     isScrubbing = false
@@ -831,6 +834,8 @@ final class EmbeddedPlayerModel: ObservableObject {
       if let media { onPlaybackEnded?(media) }
       if repeatEnabled, let media {
         openMedia(media, automatically: true)
+      } else if let media, let handled = externalCompletion?(media) {
+        if !handled { close() }
       } else if personalState.autoplay {
         advanceAfterCompletion()
       } else {
