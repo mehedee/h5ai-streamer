@@ -14,6 +14,9 @@ struct TorrentEngineEvent: Decodable, Sendable {
   var uploadSpeed: Int64?
   var peers: Int?
   var paused: Bool?
+  var bufferedSeconds: Double?
+  var bufferedBytes: Int64?
+  var percent: Double?
 }
 
 /// The app owns the helper's pipes and lifetime. No shell, daemon, or public RPC endpoint.

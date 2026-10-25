@@ -1,0 +1,70 @@
+{
+  "fill": {
+    "linear-gradient": [
+      "srgb:1.0000,0.5412,0.2980,1",
+      "srgb:0.6078,0.1137,0.3608,1"
+    ],
+    "orientation": {
+      "start": {
+        "x": 0.5,
+        "y": 0
+      },
+      "stop": {
+        "x": 0.5,
+        "y": 0.7
+      }
+    }
+  },
+  "fill-specializations": [
+    {
+      "appearance": "dark",
+      "value": {
+        "linear-gradient": [
+          "srgb:0.2275,0.1216,0.1804,1",
+          "srgb:0.0706,0.0314,0.0627,1"
+        ],
+        "orientation": {
+          "start": {
+            "x": 0.5,
+            "y": 0
+          },
+          "stop": {
+            "x": 0.5,
+            "y": 0.7
+          }
+        }
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "secondary.svg",
+          "name": "Spotlight beam",
+          "glass": true,
+          "opacity": 0.5
+        },
+        {
+          "image-name": "primary.svg",
+          "name": "Play mark",
+          "glass": true,
+          "fill": "automatic"
+        }
+      ],
+      "lighting": "individual",
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "specular": true,
+      "translucency": {
+        "enabled": true,
+        "value": 0.3
+      }
+    }
+  ]
+}

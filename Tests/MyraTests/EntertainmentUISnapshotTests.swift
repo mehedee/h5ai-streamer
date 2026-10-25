@@ -121,6 +121,24 @@ final class EntertainmentUISnapshotTests: XCTestCase {
       HomeView(coordinator: coordinator, store: coordinator.entertainment), width: 1200,
       height: 1100, name: "home-wide.png")
     try await renderHosted(
+      HomeView(
+        coordinator: coordinator, store: coordinator.entertainment, initialMood: .mindBending),
+      width: 1200, height: 1100, name: "home-tonight-mood.png")
+    let tonight = try XCTUnwrap(
+      MyraRecommender.recommend(
+        titles: coordinator.entertainment.catalogue, personal: coordinator.entertainment.personal,
+        context: MyraViewingContext(mood: .mindBending)
+      ).first)
+    try await renderHosted(
+      TonightWhyView(pick: tonight), width: 300, height: 200, name: "tonight-why.png")
+    coordinator.entertainment.react(.like, to: tonight.id)
+    try await renderHosted(
+      VStack(alignment: .leading, spacing: 10) {
+        RecommendationFeedbackItems(titleID: tonight.id, store: coordinator.entertainment)
+      }.buttonStyle(.borderless).padding(),
+      width: 260, height: 140, name: "tonight-feedback-items.png")
+    coordinator.entertainment.react(.like, to: tonight.id)
+    try await renderHosted(
       EntertainmentVersionChooser(title: dune, store: coordinator.entertainment, choose: { _ in }),
       width: 750, height: 520, name: "movie-version-chooser.png")
     let series = try XCTUnwrap(coordinator.entertainment.catalogue.first { $0.kind == .series })

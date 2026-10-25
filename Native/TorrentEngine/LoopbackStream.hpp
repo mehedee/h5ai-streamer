@@ -30,6 +30,10 @@ class LoopbackStream final {
   std::string token_;
   std::atomic<bool> stopping_{false};
   std::atomic<int> selected_{-1};
+  // File-relative byte offset of the most recent read, and a counter that
+  // advances on every new HTTP request (VLC seeks by opening a new range).
+  std::atomic<std::int64_t> playhead_{0};
+  std::atomic<std::uint64_t> seekGeneration_{0};
   std::mutex mutex_;
   std::condition_variable ready_;
   std::deque<std::unique_ptr<TCP::socket>> queue_;
@@ -101,6 +105,8 @@ class LoopbackStream final {
       HTTPRange range;
       try { range = HTTPRange::parse(rangeHeader, file.size); }
       catch (...) { emptyResponse(fd, 416, "Range Not Satisfiable", "Content-Range: bytes */" + std::to_string(file.size) + "\r\n"); return; }
+      playhead_ = range.begin;
+      ++seekGeneration_;
       watchdog = std::thread([&, index] {
         while (!done && !cancelled) {
           if (stopping_ || selected_ != index) { cancelled = true; return; }
@@ -129,6 +135,7 @@ class LoopbackStream final {
       bool connected = sendText(fd, header + "\r\n");
       if (method == "GET") {
         for (auto offset = range.begin; connected && !cancelled && offset <= range.end;) {
+          playhead_ = offset;
           auto absolute = file.offset + offset;
           auto piece = static_cast<int>(absolute / pieceLength_);
           auto data = first ? std::move(first) : broker_.read(piece, cancelled);
@@ -221,9 +228,17 @@ public:
     if (acceptThread_.joinable()) acceptThread_.join();
     for (auto& worker : workers_) if (worker.joinable()) worker.join();
   }
+  struct Playhead {
+    std::int64_t offset;
+    std::uint64_t generation;
+  };
+  // Read position of the selected stream, used by the engine's read-ahead policy.
+  Playhead playhead() const noexcept { return {playhead_.load(), seekGeneration_.load()}; }
   std::string select(int index) {
     if (!files_.count(index)) throw std::invalid_argument("Unknown video file.");
     selected_ = index;
+    playhead_ = 0;
+    ++seekGeneration_;
     return "http://127.0.0.1:" + std::to_string(acceptor_.local_endpoint().port()) + "/" + token_ + "/" + std::to_string(index) + files_.at(index).extension;
   }
   void deselect() noexcept { selected_ = -1; }

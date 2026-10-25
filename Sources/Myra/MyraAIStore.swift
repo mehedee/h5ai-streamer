@@ -364,7 +364,7 @@ import Foundation
 
   private func fallbackResponse(_ job: Job, reason: Error) throws -> MyraAIResponse {
     let local = Self.localIntent(job).intent
-    let output = try MyraRecommender.recommend(
+    let output = try MyraFallbackRecommender.recommend(
       feature: job.feature, prompt: job.prompt, titles: job.titles, personal: job.personal,
       intent: local, selectedIDs: job.selectedIDs, language: job.config.language)
     guard !output.recommendations.isEmpty else { throw reason }

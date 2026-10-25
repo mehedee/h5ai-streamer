@@ -14,6 +14,8 @@ struct EntertainmentMetadata: Codable, Sendable, Equatable {
   var language: String
   var runtimeMinutes: Int? = nil
   var episodeReleaseDates: [String: String]? = nil
+  /// TMDB backdrop (w780). Optional so metadata cached before this field existed still decodes.
+  var backdropURL: URL? = nil
 }
 
 struct EntertainmentVersion: Identifiable, Sendable, Hashable, Codable {
@@ -103,6 +105,23 @@ struct EntertainmentPersonalData: Codable, Sendable {
   var matchCorrections: [String: EntertainmentMatchCorrection] = [:]
   var preferences = EntertainmentPreferences()
   var history: [String: EntertainmentPlaybackRecord] = [:]
+  /// Optional so profiles written before recommendation feedback still decode.
+  var recommendationFeedback: MyraRecommendationFeedback?
+  /// Automatic Home shelf choices. Nil for personal data written before shelves existed.
+  var homeCategories: HomeCategoryPreferences? = nil
+}
+
+struct MyraRecommendationFeedback: Codable, Sendable, Equatable {
+  var liked: Set<String> = []
+  var disliked: Set<String> = []
+  /// "Not tonight" dismissals; each expires after `dismissalLifetime`.
+  var dismissed: [String: Date] = [:]
+
+  static let dismissalLifetime: TimeInterval = 18 * 3600
+
+  func activeDismissals(at date: Date) -> Set<String> {
+    Set(dismissed.filter { date.timeIntervalSince($0.value) < Self.dismissalLifetime }.keys)
+  }
 }
 
 enum EntertainmentGrouping {

@@ -155,6 +155,7 @@ struct MyraApp: App {
       RootView(coordinator: coordinator)
         .modelContainer(container)
         .frame(minWidth: 1_000, minHeight: 650)
+        .onOpenURL { coordinator.torrents.handleOpenURL($0) }
         .onAppear {
           MyraAppearance.apply()
           coordinator.updater.start()
@@ -164,11 +165,7 @@ struct MyraApp: App {
     .defaultSize(width: 1_240, height: 800)
     .windowToolbarStyle(.unified(showsTitle: false))
     .commands {
-      CommandGroup(after: .appInfo) {
-        UpdateCheckButton(updater: coordinator.updater)
-        Button("Clear Completed Downloads") { coordinator.clearCompleted() }
-          .keyboardShortcut("k", modifiers: [.command, .shift])
-      }
+      MyraCommands(coordinator: coordinator, player: coordinator.player)
     }
     Settings {
       if let settings = coordinator.settings {

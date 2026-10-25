@@ -7,7 +7,7 @@ import XCTest
 final class MyraAppearanceTests: XCTestCase {
   func testEverySelectableFamilyHasAllDockRenditions() {
     for family in MyraIconFamily.allCases {
-      for appearance in [MyraIconAppearance.light, .dark, .glass] {
+      for appearance in [MyraIconAppearance.light, .dark, .clear] {
         let image = MyraAppearance.image(family: family, appearance: appearance, dark: false)
         XCTAssertNotNil(image, "Missing \(family.rawValue)/\(appearance.rawValue)")
         XCTAssertEqual(image?.size.width, 512)

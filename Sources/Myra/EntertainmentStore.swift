@@ -242,6 +242,29 @@ final class EntertainmentStore: ObservableObject {
 
   func toggleWatchlist(_ titleID: String) { mutate { Self.toggle(titleID, in: &$0.watchlist) } }
   func toggleWatched(_ titleID: String) { mutate { Self.toggle(titleID, in: &$0.watched) } }
+
+  enum RecommendationReaction { case like, dislike, notTonight }
+
+  /// Like and dislike are exclusive toggles; "Not tonight" hides a title for one evening.
+  func react(_ reaction: RecommendationReaction, to titleID: String, at date: Date = .now) {
+    mutate { data in
+      var feedback = data.recommendationFeedback ?? .init()
+      switch reaction {
+      case .like:
+        feedback.disliked.remove(titleID)
+        Self.toggle(titleID, in: &feedback.liked)
+      case .dislike:
+        feedback.liked.remove(titleID)
+        Self.toggle(titleID, in: &feedback.disliked)
+      case .notTonight:
+        feedback.dismissed = feedback.dismissed.filter {
+          date.timeIntervalSince($0.value) < MyraRecommendationFeedback.dismissalLifetime
+        }
+        feedback.dismissed[titleID] = date
+      }
+      data.recommendationFeedback = feedback
+    }
+  }
   func toggleFollow(_ titleID: String) {
     mutate { data in
       Self.toggle(titleID, in: &data.followed)
@@ -441,6 +464,13 @@ final class EntertainmentStore: ObservableObject {
       result.matchCorrections.merge(archive.personal.matchCorrections) { _, new in new }
       result.history.merge(archive.personal.history) { old, new in
         old.updated > new.updated ? old : new
+      }
+      if let imported = archive.personal.recommendationFeedback {
+        var feedback = result.recommendationFeedback ?? .init()
+        feedback.liked.formUnion(imported.liked.subtracting(feedback.disliked))
+        feedback.disliked.formUnion(imported.disliked.subtracting(feedback.liked))
+        feedback.dismissed.merge(imported.dismissed) { max($0, $1) }
+        result.recommendationFeedback = feedback
       }
     }
     try Self.validate(result)

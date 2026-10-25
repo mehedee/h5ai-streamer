@@ -1,331 +1,282 @@
 import Foundation
 
-/// Genre words people use, mapped to canonical catalogue genres.
-enum MyraGenreVocabulary {
-  private static let synonyms: [(pattern: String, genres: [String])] = [
-    ("sci-?fi|science[ -]fiction", ["Science Fiction"]),
-    ("romcom|rom-com", ["Romance", "Comedy"]),
-    ("documentar(?:y|ies)", ["Documentary"]),
-    ("animat(?:ed|ion|ions)|cartoons?", ["Animation"]),
-    ("kids?|children'?s", ["Family"]),
-  ]
+/// Mood presets offered on Home. Each maps to deterministic genre and runtime rules so
+/// recommendations work without a language model.
+enum MyraMood: String, Codable, CaseIterable, Identifiable, Sendable {
+  case cosy, thrilling, funny, mindBending, feelGood, short, background, learn
 
-  /// True when the request names this genre directly or through a synonym.
-  static func mentions(_ genre: String, in request: String) -> Bool {
-    if matches("\(NSRegularExpression.escapedPattern(for: genre))s?", in: request) { return true }
-    return synonyms.contains { entry in
-      entry.genres.contains { $0.caseInsensitiveCompare(genre) == .orderedSame }
-        && matches(entry.pattern, in: request)
+  var id: String { rawValue }
+  var title: String {
+    switch self {
+    case .cosy: "Cosy"
+    case .thrilling: "Thrilling"
+    case .funny: "Funny"
+    case .mindBending: "Mind-bending"
+    case .feelGood: "Feel-good"
+    case .short: "Something short"
+    case .background: "Background"
+    case .learn: "Learn something"
     }
   }
 
-  /// Canonical genres named by the request. More than one means the request is ambiguous.
-  static func genres(in request: String, catalogueGenres: [String]) -> [String] {
-    var found = Set<String>()
-    for genre in catalogueGenres where mentions(genre, in: request) { found.insert(genre) }
-    for entry in synonyms where matches(entry.pattern, in: request) {
-      entry.genres.forEach { found.insert($0) }
+  var preferredGenres: Set<String> {
+    switch self {
+    case .cosy: ["family", "animation", "romance", "comedy"]
+    case .thrilling: ["thriller", "action", "crime", "horror", "adventure"]
+    case .funny: ["comedy", "animation"]
+    case .mindBending: ["science fiction", "mystery", "thriller", "fantasy"]
+    case .feelGood: ["comedy", "family", "romance", "music", "adventure"]
+    case .short: []
+    case .background: ["comedy", "documentary", "reality", "animation"]
+    case .learn: ["documentary", "history"]
     }
-    return found.sorted()
   }
 
-  static func matches(_ pattern: String, in text: String) -> Bool {
-    guard let regex = try? NSRegularExpression(pattern: "\\b(?:\(pattern))\\b", options: [.caseInsensitive])
-    else { return false }
-    return regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+  var avoidedGenres: Set<String> {
+    switch self {
+    case .cosy, .feelGood: ["horror", "war", "thriller"]
+    case .funny: ["horror", "war"]
+    case .background: ["mystery", "thriller"]
+    default: []
+    }
+  }
+
+  var keywords: [String] {
+    switch self {
+    case .cosy: ["heartwarming", "gentle", "charming", "friendship", "holiday"]
+    case .thrilling: ["chase", "heist", "survival", "suspense", "escape"]
+    case .funny: ["comedy", "hilarious", "satire", "quirky"]
+    case .mindBending: ["time", "reality", "memory", "twist", "dimension"]
+    case .feelGood: ["uplifting", "joy", "dream", "family", "friendship"]
+    case .short, .background: []
+    case .learn: ["true story", "history", "nature", "science", "biography"]
+    }
+  }
+
+  var maximumMinutes: Int? { self == .short ? 95 : nil }
+}
+
+enum MyraDayPart: String, Sendable {
+  case morning, afternoon, evening, lateNight
+
+  init(date: Date, calendar: Calendar) {
+    switch calendar.component(.hour, from: date) {
+    case 5..<12: self = .morning
+    case 12..<17: self = .afternoon
+    case 17..<22: self = .evening
+    default: self = .lateNight
+    }
+  }
+
+  var title: String {
+    switch self {
+    case .morning: "morning"
+    case .afternoon: "afternoon"
+    case .evening: "evening"
+    case .lateNight: "late night"
+    }
   }
 }
 
-/// A local reading of explicit constraints. `isConfident` means no clause was left unexplained.
-struct MyraIntentParse: Sendable, Equatable {
-  var intent: MyraSearchIntent
-  var isConfident: Bool
-}
+/// Everything the recommender knows about the moment. All values are local; nothing here
+/// is sent to a model unless a caller explicitly asks for generated reasons.
+struct MyraViewingContext: Sendable {
+  var date: Date = .now
+  var calendar: Calendar = .current
+  var mood: MyraMood?
+  /// Explicit minutes the user has. When nil, a budget is inferred from the time of day.
+  var availableMinutes: Int?
+  var avoidGenres: Set<String> = []
+  var languages: Set<String> = []
+  var kind: EntertainmentKind?
+  var liked: Set<String> = []
+  var disliked: Set<String> = []
+  /// Titles dismissed with "Not tonight"; excluded for this context only.
+  var dismissed: Set<String> = []
+  /// Cached interpretive mood tags per title ID (from background tagging), lower-cased.
+  var moodTags: [String: [String]] = [:]
+  /// Varies novelty jitter so "Another" can rotate results deterministically.
+  var seed: UInt64 = 0
 
-/// Reads explicit constraints (genre, year, rating, runtime, watch state, kind, language)
-/// without a model. Mood and style words stay with ranking, and anything it cannot express
-/// marks the parse as unconfident so the model may be asked instead.
-enum MyraIntentParser {
-  private static let numberWords: [String: Int] = [
-    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
-    "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "fifteen": 15, "twenty": 20,
-    "thirty": 30, "forty": 40, "forty-five": 45, "fifty": 50, "sixty": 60, "ninety": 90,
-  ]
-  private static let number =
-    "\\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty-five|forty|fifty|sixty|ninety"
-  private static let languages: [(word: String, code: String)] = [
-    ("english", "en"), ("korean", "ko"), ("japanese", "ja"), ("french", "fr"), ("spanish", "es"),
-    ("german", "de"), ("bengali", "bn"), ("bangla", "bn"), ("hindi", "hi"), ("chinese", "zh"),
-    ("italian", "it"), ("tamil", "ta"), ("arabic", "ar"), ("portuguese", "pt"), ("turkish", "tr"),
-  ]
-  /// Relative or quality words that need a model or a clearer request.
-  private static let unexplainedWords =
-    "short|long|recent|recently|latest|new|newest|old|older|classic|last|past|top|best|worst|popular|trending"
-  private static let stopWords: Set<String> = [
-    "a", "an", "the", "me", "my", "i", "you", "show", "find", "give", "want", "need", "search",
-    "looking", "look", "for", "of", "on", "in", "to", "with", "and", "or", "please", "something",
-    "some", "any", "anything", "that", "this", "these", "those", "is", "are", "be", "it", "its",
-    "from", "about", "tonight", "today", "now", "just", "more", "like", "similar", "title",
-    "titles", "what", "which", "do", "have", "pick", "plan", "recommend", "suggest", "one", "ones",
-    "movie", "movies", "film", "films", "series", "show", "shows", "tv", "episode", "episodes",
-    "minutes", "minute", "min", "mins", "hour", "hours", "hr", "hrs", "available", "time",
-  ]
+  var dayPart: MyraDayPart { MyraDayPart(date: date, calendar: calendar) }
+  var isWeekend: Bool { calendar.isDateInWeekend(date) }
 
-  /// `catalogueGenres` and `catalogueTitleWords` come from the indexed library, never from the model.
-  static func parse(
-    prompt: String, feature: MyraAIFeature, catalogueGenres: [String] = [],
-    catalogueTitleWords: Set<String> = []
-  ) -> MyraIntentParse {
-    var text =
-      " " + prompt.lowercased().replacingOccurrences(of: "\u{2019}", with: "'") + " "
-    var intent = MyraSearchIntent()
-    var uncertain = false
-    if text.split(whereSeparator: { $0.isWhitespace }).count > 60 { uncertain = true }
-
-    /// Returns the capture groups of every match and removes those matches from the text.
-    func take(_ pattern: String) -> [[String]] {
-      guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
-      else { return [] }
-      let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
-      let groups = matches.map { match in
-        (0..<match.numberOfRanges).map { index -> String in
-          guard let range = Range(match.range(at: index), in: text) else { return "" }
-          return String(text[range])
-        }
-      }
-      if !matches.isEmpty {
-        text = regex.stringByReplacingMatches(
-          in: text, range: NSRange(text.startIndex..., in: text), withTemplate: " ")
-      }
-      return groups
+  /// The explicit budget, else a conservative guess: weeknight late nights are short.
+  var effectiveMinutes: (minutes: Int, explicit: Bool)? {
+    if let availableMinutes, availableMinutes > 0 { return (availableMinutes, true) }
+    if let moodLimit = mood?.maximumMinutes { return (moodLimit, true) }
+    switch (dayPart, isWeekend) {
+    case (.lateNight, false): return (110, false)
+    case (.lateNight, true), (.evening, false): return (160, false)
+    default: return nil
     }
-    func value(_ token: String) -> Int? { Int(token) ?? numberWords[token.lowercased()] }
-
-    // Watch state and list membership.
-    if !take(
-      "\\b(?:unwatched|not (?:yet )?(?:watched|seen)|haven'?t (?:yet )?(?:seen|watched)|unseen|never (?:watched|seen)|new to me)\\b"
-    ).isEmpty {
-      intent.unwatched = true
-    }
-    if !take(
-      "\\b(?:unfinished|in progress|resum(?:e|ing)|half[- ]watched|partly watched|continue watching|keep watching)\\b"
-    ).isEmpty {
-      intent.unfinished = true
-    }
-    if !take(
-      "\\b(?:rewatch\\w*|already (?:watched|seen|finished)|seen before|previously watched|finished|i'?ve (?:already )?(?:seen|watched))\\b"
-    ).isEmpty {
-      intent.watched = true
-    }
-    if !take("\\b(?:watchlist|watch list|saved to watch|my list|bookmarked)\\b").isEmpty {
-      intent.watchlisted = true
-    }
-
-    // Kind: a movie and a series in one request is ambiguous.
-    let movieWords = !take("\\b(?:movies?|films?)\\b").isEmpty
-    let seriesWords = !take("\\b(?:series|shows?|tv|episodes?|seasons?)\\b").isEmpty
-    if movieWords && seriesWords {
-      uncertain = true
-    } else if movieWords {
-      intent.kind = "movie"
-    } else if seriesWords {
-      intent.kind = "series"
-    }
-
-    // Genre: exactly one canonical genre is explicit; several are left to the model.
-    let genres = MyraGenreVocabulary.genres(
-      in: text, catalogueGenres: Array(Set(catalogueGenres)).sorted())
-    if genres.count == 1 { intent.genre = genres[0] } else if genres.count > 1 { uncertain = true }
-
-    // Language.
-    let languageCodes = Set(
-      languages.compactMap { entry -> String? in
-        matches(entry.word, in: text) ? entry.code : nil
-      })
-    if languageCodes.count == 1 { intent.language = languageCodes.first } else if languageCodes.count > 1 {
-      uncertain = true
-    }
-
-    // Years. A range first, then one-sided bounds, then an exact year.
-    for group in take("\\b(?:from |between |in |during )?(19\\d{2}|20\\d{2}) ?(?:-|\u{2013}|to|and|through|till|until) ?(19\\d{2}|20\\d{2})\\b")
-    {
-      let first = Int(group[1]) ?? 0
-      let second = Int(group[2]) ?? 0
-      intent.minimumYear = min(first, second)
-      intent.maximumYear = max(first, second)
-    }
-    for group in take("\\b(19\\d0|20\\d0)s\\b") {
-      let start = Int(group[1]) ?? 0
-      intent.minimumYear = start
-      intent.maximumYear = start + 9
-    }
-    for group in take(
-      "\\b(?:after|since|from|newer than|later than|released after)\\s+(19\\d{2}|20\\d{2})\\b")
-    {
-      intent.minimumYear = Int(group[1])
-    }
-    for group in take(
-      "\\b(?:before|until|up to|older than|prior to|released before)\\s+(19\\d{2}|20\\d{2})\\b")
-    {
-      intent.maximumYear = Int(group[1])
-    }
-    for group in take("\\b(?:in|released in)\\s+(19\\d{2}|20\\d{2})\\b") {
-      let year = Int(group[1])
-      intent.minimumYear = year
-      intent.maximumYear = year
-    }
-    for group in take("\\b(19\\d{2}|20\\d{2})\\b") {
-      let year = Int(group[1])
-      intent.minimumYear = year
-      intent.maximumYear = year
-    }
-
-    // Rating: only explicit rating words, stars, or x/10 forms.
-    for group in take(
-      "\\b(?:rated|rating|scores?|scored|imdb)\\s*(?:of\\s+|above\\s+|over\\s+|at least\\s+|higher than\\s+)?(\\d{1,2}(?:\\.\\d)?)(?:\\s*(?:\\+|/\\s*10|or (?:higher|more|above)|and (?:up|above)))?\\b"
-    ) + take("\\b(?:above|over|at least)\\s+(\\d{1,2}(?:\\.\\d)?)\\s*(?:stars?|rating|imdb)\\b")
-      + take("\\b(\\d{1,2}(?:\\.\\d)?)\\s*/\\s*10\\b")
-    {
-      let rating = Double(group[1]) ?? -1
-      if (0...10).contains(rating) { intent.minimumRating = rating } else { uncertain = true }
-    }
-
-    // Runtime. Qualified limits are explicit; plan budgets accept any time phrase.
-    let limitPrefix =
-      "under|less than|shorter than|no longer than|within|at most|up to|below|maximum of|max(?:imum)?|in under"
-    for group in take(
-      "\\b(?:\(limitPrefix))\\s+(\(number))\\s*(hours?|hrs?|minutes?|mins?)\\b")
-    {
-      if let amount = value(group[1]) {
-        let isHours = group[2].lowercased().hasPrefix("h")
-        intent.maximumMinutes = amount * (isHours ? 60 : 1)
-      } else {
-        uncertain = true
-      }
-    }
-    if feature == .plan {
-      for group in take("\\b(\(number))\\s*(hours?|hrs?|minutes?|mins?)\\b") {
-        if let amount = value(group[1]) {
-          let isHours = group[2].lowercased().hasPrefix("h")
-          intent.maximumMinutes = amount * (isHours ? 60 : 1)
-        }
-      }
-    }
-
-    // Anything left that looks like a constraint is not explained by the rules above.
-    if !take("\\bnot\\b|\\bno\\b|\\bwithout\\b|\\bexcept\\b|\\bbut\\b|\\bnever\\b|\\bavoid\\b|\\bexcluding\\b|\\bexclude\\b|\\bnothing\\b|\\bdon'?t\\b|\\bdoesn'?t\\b|\\bisn'?t\\b")
-      .isEmpty
-    {
-      uncertain = true
-    }
-    if !take("\\b(?:\(unexplainedWords))\\b").isEmpty { uncertain = true }
-    if !take("\\b\\d+\\b|\\b(?:hours?|hrs?|minutes?|mins?)\\b").isEmpty, feature != .plan {
-      uncertain = true
-    }
-
-    // Title keywords are only taken from the library, so mood words never become filters.
-    if feature == .naturalSearch {
-      let residual = text.split { !$0.isLetter && !$0.isNumber && $0 != "'" && $0 != "-" }
-        .map { String($0).lowercased() }
-        .filter { !stopWords.contains($0) && catalogueTitleWords.contains($0) }
-      if !residual.isEmpty { intent.query = residual.joined(separator: " ") }
-    }
-    return MyraIntentParse(intent: intent, isConfident: !uncertain)
-  }
-
-  private static func matches(_ word: String, in text: String) -> Bool {
-    MyraGenreVocabulary.matches(NSRegularExpression.escapedPattern(for: word), in: text)
   }
 }
 
-extension MyraSearchIntent {
-  /// Fills fields the primary intent left empty from the locally read one.
-  func filled(from local: MyraSearchIntent) -> MyraSearchIntent {
-    var result = self
-    result.query = query ?? local.query
-    result.genre = genre ?? local.genre
-    result.language = language ?? local.language
-    result.kind = kind ?? local.kind
-    result.minimumYear = minimumYear ?? local.minimumYear
-    result.maximumYear = maximumYear ?? local.maximumYear
-    result.minimumRating = minimumRating ?? local.minimumRating
-    result.unwatched = unwatched ?? local.unwatched
-    result.unfinished = unfinished ?? local.unfinished
-    result.watchlisted = watchlisted ?? local.watchlisted
-    result.watched = watched ?? local.watched
-    result.maximumMinutes = maximumMinutes ?? local.maximumMinutes
-    return result
-  }
+struct MyraRecommendation: Identifiable, Sendable {
+  var title: EntertainmentTitle
+  var score: Double
+  var reasons: [String]
+  var id: String { title.id }
 }
 
-/// Deterministic fallback for recommendation features. It uses the same filters and shortlist
-/// as the model path and writes template reasons, so a recommendation request never ends empty.
 enum MyraRecommender {
-  struct Output: Sendable {
-    var summary: String
-    var recommendations: [MyraAIRecommendation]
-  }
-
   static func recommend(
-    feature: MyraAIFeature, prompt: String, titles: [EntertainmentTitle],
-    personal: EntertainmentPersonalData, intent: MyraSearchIntent?, selectedIDs: [String],
-    language: String
-  ) throws -> Output {
-    var config = MyraAISettings()
-    config.language = language
-    let ranked = try MyraAIContext.shortlist(
-      titles: titles, personal: personal, config: config, feature: feature, prompt: prompt,
-      selectedIDs: selectedIDs, intent: intent?.normalized(for: prompt), limit: 12)
-    let budget = feature == .plan ? (intent?.maximumMinutes ?? 0) : nil
-    var chosen: [EntertainmentTitle] = []
-    var total = 0
-    for item in ranked where chosen.count < MyraAIOutputFormat.maximumRecommendations {
-      if let budget {
-        guard let minutes = MyraAIContext.runtime(item.title), total + minutes <= budget else {
-          continue
-        }
-        total += minutes
+    titles: [EntertainmentTitle], personal: EntertainmentPersonalData,
+    context: MyraViewingContext, limit: Int = 8
+  ) -> [MyraRecommendation] {
+    let taste = tasteProfile(titles: titles, personal: personal, context: context)
+    let budget = context.effectiveMinutes
+    let avoided = Set(
+      (context.avoidGenres.union(context.mood?.avoidedGenres ?? [])).map { $0.lowercased() })
+    let recentCutoff = context.date.addingTimeInterval(-3 * 86_400)
+    var results: [MyraRecommendation] = []
+    for title in titles {
+      // Hard constraints are never traded for score.
+      if personal.watched.contains(title.id) || context.disliked.contains(title.id)
+        || context.dismissed.contains(title.id)
+      {
+        continue
       }
-      chosen.append(item.title)
+      if let kind = context.kind, title.kind != kind { continue }
+      if !context.languages.isEmpty,
+        !context.languages.contains(title.metadata?.language ?? "")
+      {
+        continue
+      }
+      let genres = Set((title.metadata?.genres ?? []).map { $0.lowercased() })
+      if !context.avoidGenres.isEmpty,
+        !genres.isDisjoint(with: context.avoidGenres.map { $0.lowercased() })
+      {
+        continue
+      }
+      let runtime = MyraAIContext.runtime(title)
+      if let budget, budget.explicit {
+        guard let runtime, runtime <= budget.minutes else { continue }
+      } else if let budget, let runtime, runtime > budget.minutes {
+        continue
+      }
+
+      var reasons: [String] = []
+      let mood = moodScore(title: title, genres: genres, context: context)
+      if mood >= 0.3, let name = context.mood?.title { reasons.append("Fits \(name.lowercased())") }
+      let tasteScore = genres.isEmpty ? 0 : genres.map { taste[$0] ?? 0 }.max() ?? 0
+      if tasteScore > 0.5, let genre = genres.max(by: { (taste[$0] ?? 0) < (taste[$1] ?? 0) }) {
+        reasons.append("You often watch \(genre)")
+      }
+      var timeFit = 0.5
+      if let runtime {
+        if let budget {
+          timeFit = 1 - Double(budget.minutes - runtime) / Double(max(budget.minutes, 1)) * 0.6
+          reasons.append("\(duration(runtime)) · fits your time")
+        } else {
+          timeFit = 0.7
+        }
+      }
+      let dayFit = dayPartScore(genres: genres, runtime: runtime, part: context.dayPart)
+      let rating = min(max((title.metadata?.rating ?? 5) / 10, 0), 1)
+      if rating >= 0.8 { reasons.append(String(format: "Rated %.1f", rating * 10)) }
+      let novelty = Double(jitter(title.id, seed: context.seed) % 1000) / 1000
+
+      var score =
+        0.35 * mood + 0.2 * tasteScore + 0.15 * timeFit + 0.1 * dayFit + 0.1 * rating
+        + 0.1 * novelty
+      if !genres.isDisjoint(with: avoided) { score -= 0.5 }
+      if let played = title.versions.compactMap(\.lastPlayed).max(), played > recentCutoff,
+        title.resumeVersion == nil
+      {
+        score -= 0.2
+      }
+      if context.liked.contains(where: { likedID in
+        titles.first { $0.id == likedID }?.metadata?.genres.contains {
+          genres.contains($0.lowercased())
+        } ?? false
+      }) {
+        score += 0.05
+      }
+      if title.resumeVersion != nil { reasons.insert("Continue where you left off", at: 0) }
+      if reasons.isEmpty {
+        reasons.append(
+          title.latestDiscovered > context.date.addingTimeInterval(-14 * 86_400)
+            ? "New in your library" : "Unwatched in your library")
+        if rating > 0.6 { reasons.append(String(format: "Rated %.1f", rating * 10)) }
+      }
+      results.append(.init(title: title, score: score, reasons: Array(reasons.prefix(3))))
     }
-    let recommendations: [MyraAIRecommendation] = chosen.map { title in
-      .init(
-        titleID: title.id,
-        reason: templateReason(title, feature: feature, intent: intent, personal: personal),
-        versionID: feature == .plan ? MyraAIContext.plannedVersion(title)?.id : nil)
-    }
-    let summary =
-      recommendations.isEmpty
-      ? "No indexed title matched every explicit constraint."
-      : "Picked \(recommendations.count) title\(recommendations.count == 1 ? "" : "s") from your saved catalogue using fixed rules, not a language model."
-    return Output(summary: summary, recommendations: recommendations)
+    return Array(
+      results.sorted { $0.score == $1.score ? $0.id < $1.id : $0.score > $1.score }.prefix(limit))
   }
 
-  static func templateReason(
-    _ title: EntertainmentTitle, feature: MyraAIFeature, intent: MyraSearchIntent?,
-    personal: EntertainmentPersonalData
-  ) -> String {
-    var facts: [String] = []
-    if let genre = title.metadata?.genres.first { facts.append(genre) }
-    if let year = title.year { facts.append(year) }
-    if let rating = title.metadata?.rating, rating > 0 {
-      facts.append(String(format: "rated %.1f", rating))
+  /// A short line for the Home banner, e.g. "Friday evening · about 2h 40m free".
+  static func headline(for context: MyraViewingContext) -> String {
+    let day = context.date.formatted(.dateTime.weekday(.wide))
+    guard let budget = context.effectiveMinutes else { return "\(day) \(context.dayPart.title)" }
+    return "\(day) \(context.dayPart.title) · about \(duration(budget.minutes)) free"
+  }
+
+  static func duration(_ minutes: Int) -> String {
+    minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : "\(minutes)m"
+  }
+
+  /// Normalised genre affinity (0...1) from watched titles, playback history and likes.
+  static func tasteProfile(
+    titles: [EntertainmentTitle], personal: EntertainmentPersonalData,
+    context: MyraViewingContext
+  ) -> [String: Double] {
+    var counts: [String: Double] = [:]
+    for title in titles {
+      var weight = 0.0
+      if personal.watched.contains(title.id) { weight += 1 }
+      if title.versions.contains(where: { $0.lastPlayed != nil }) { weight += 0.5 }
+      if context.liked.contains(title.id) { weight += 2 }
+      if context.disliked.contains(title.id) { weight -= 1 }
+      guard weight != 0 else { continue }
+      for genre in title.metadata?.genres ?? [] { counts[genre.lowercased(), default: 0] += weight }
     }
-    if let minutes = MyraAIContext.runtime(title) { facts.append("\(minutes) min") }
-    if personal.watched.contains(title.id) {
-      facts.append("already watched")
-    } else {
-      facts.append("unwatched")
+    let maximum = counts.values.max() ?? 0
+    guard maximum > 0 else { return [:] }
+    return counts.mapValues { max($0, 0) / maximum }
+  }
+
+  private static func moodScore(
+    title: EntertainmentTitle, genres: Set<String>, context: MyraViewingContext
+  ) -> Double {
+    guard let mood = context.mood else { return 0.5 }
+    if mood == .short { return 0.7 }
+    let preferred = mood.preferredGenres
+    let genreMatch =
+      preferred.isEmpty ? 0 : min(Double(genres.intersection(preferred).count), 2) / 2
+    let tags = context.moodTags[title.id] ?? []
+    let tagMatch =
+      tags.contains { $0 == mood.rawValue.lowercased() || $0 == mood.title.lowercased() } ? 1.0 : 0
+    let overview = (title.metadata?.overview ?? "").lowercased()
+    let keywordMatch = mood.keywords.contains { overview.contains($0) } ? 1.0 : 0
+    return min(0.6 * genreMatch + 0.3 * tagMatch + 0.2 * keywordMatch, 1)
+  }
+
+  private static func dayPartScore(genres: Set<String>, runtime: Int?, part: MyraDayPart) -> Double
+  {
+    let heavy: Set<String> = ["horror", "war", "drama", "thriller"]
+    let light: Set<String> = ["comedy", "animation", "family", "documentary"]
+    switch part {
+    case .morning, .afternoon:
+      return genres.isDisjoint(with: light) ? (genres.isDisjoint(with: heavy) ? 0.5 : 0.3) : 0.9
+    case .evening:
+      return 0.7
+    case .lateNight:
+      var score = genres.isDisjoint(with: heavy) ? 0.6 : 0.8
+      if let runtime, runtime > 130 { score -= 0.3 }
+      return score
     }
-    if personal.watchlist.contains(title.id) { facts.append("on your watchlist") }
-    var constraints: [String] = []
-    if let genre = intent?.genre { constraints.append(genre.lowercased()) }
-    if let language = intent?.language { constraints.append("in \(language)") }
-    if let maximum = intent?.maximumMinutes { constraints.append("within \(maximum) minutes") }
-    let lead =
-      constraints.isEmpty
-      ? (feature == .similar ? "Similar genres in your library" : "Fits your request")
-      : "Matches " + constraints.joined(separator: ", ")
-    return "\(lead): " + facts.joined(separator: " · ") + "."
+  }
+
+  /// Stable FNV-1a hash so ordering is reproducible for a given seed.
+  private static func jitter(_ id: String, seed: UInt64) -> UInt64 {
+    var hash: UInt64 = 0xcbf2_9ce4_8422_2325 ^ seed
+    for byte in id.utf8 {
+      hash ^= UInt64(byte)
+      hash = hash &* 0x0000_0100_0000_01b3
+    }
+    return hash
   }
 }

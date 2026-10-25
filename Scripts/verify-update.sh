@@ -57,8 +57,8 @@ ditto "$PROJECT_ROOT/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-
   "$TEST_FRAMEWORKS_DIR/Sparkle.framework"
 swift test --skip-build
 zsh Scripts/build-dmg.sh
-[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' .build/dmg/products/Myra.app/Contents/Info.plist)" == "3.0.3" ]]
-[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' .build/dmg/products/Myra.app/Contents/Info.plist)" == "11" ]]
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' .build/dmg/products/Myra.app/Contents/Info.plist)" == "3.0.4" ]]
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' .build/dmg/products/Myra.app/Contents/Info.plist)" == "12" ]]
 codesign --verify --deep --strict --verbose=2 .build/dmg/products/Myra.app
 otool -L .build/dmg/products/Myra.app/Contents/MacOS/Myra
 print "Myra update verification and DMG build completed."

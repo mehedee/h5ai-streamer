@@ -1,23 +1,73 @@
 import AppKit
 import SwiftUI
 
+/// The Myra icon choices. Aperture is the default and the packaged bundle icon.
+/// Stored values from the retired cinema, orbit, minimal and signature families migrate to Aperture.
 enum MyraIconFamily: String, CaseIterable, Identifiable {
-  case signature, cinema, orbit, minimal
+  case aperture
+  case spotlight
+  case ribbonM = "ribbon-m"
+
   var id: String { rawValue }
-  var title: String { rawValue.capitalized }
+
+  var title: String {
+    switch self {
+    case .aperture: "Aperture"
+    case .spotlight: "Spotlight"
+    case .ribbonM: "Ribbon M"
+    }
+  }
+
+  /// Resolves a stored preference. Missing, retired or unknown values fall back to Aperture.
+  init(storedValue: String?) {
+    self = storedValue.flatMap(MyraIconFamily.init(rawValue:)) ?? .aperture
+  }
 }
 
+/// Icon Composer renditions. Clear and Tinted replace the earlier light, dark and glass previews.
 enum MyraIconAppearance: String, CaseIterable, Identifiable {
-  case automatic, light, dark, glass
+  case automatic, light, dark, clear, tinted
+
   var id: String { rawValue }
-  var title: String { self == .automatic ? "Follow System" : rawValue.capitalized }
+
+  var title: String {
+    switch self {
+    case .automatic: "Follow System"
+    case .light: "Default"
+    case .dark: "Dark"
+    case .clear: "Clear"
+    case .tinted: "Tinted"
+    }
+  }
+
+  /// Stored values from the previous glass choice map to Clear.
+  init(storedValue: String?) {
+    switch storedValue {
+    case "glass": self = .clear
+    case let value?: self = MyraIconAppearance(rawValue: value) ?? .automatic
+    case nil: self = .automatic
+    }
+  }
+
+  /// The rendition suffix of the runtime PNG, or nil when the system appearance decides.
+  var renditionSuffix: String {
+    switch self {
+    case .automatic, .light: "default"
+    case .dark: "dark"
+    case .clear: "clear"
+    case .tinted: "tinted"
+    }
+  }
+
 }
 
 /// A narrow AppKit bridge changes only the running Dock icon, never the signed bundle.
 @MainActor
 final class MyraAppearance {
-  static let familyKey = "myraIconFamily"
+  static let familyKey = "myraIconChoice"
   static let appearanceKey = "myraIconAppearance"
+  /// The key used by the retired four-family picker. Its value is migrated, then removed.
+  static let retiredFamilyKey = "myraIconFamily"
   private static var observers: [NSObjectProtocol] = []
 
   static func apply(defaults: UserDefaults = .standard) {
@@ -32,11 +82,10 @@ final class MyraAppearance {
           forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { _ in Task { @MainActor in apply() } })
     }
-    let family = MyraIconFamily(rawValue: defaults.string(forKey: familyKey) ?? "") ?? .signature
-    let preference =
-      MyraIconAppearance(rawValue: defaults.string(forKey: appearanceKey) ?? "") ?? .automatic
-    // The packaged layered primary icon keeps the system's native rendering when possible.
-    if family == .signature && preference == .automatic {
+    let family = migrateStoredFamily(defaults: defaults)
+    let preference = MyraIconAppearance(storedValue: defaults.string(forKey: appearanceKey))
+    // Aperture with Follow System uses the packaged bundle icon and the system's native rendering.
+    if family == .aperture && preference == .automatic {
       NSApplication.shared.applicationIconImage = nil
       return
     }
@@ -47,20 +96,42 @@ final class MyraAppearance {
     }
   }
 
-  static func image(family: MyraIconFamily, appearance: MyraIconAppearance, dark: Bool) -> NSImage?
+  /// Moves a value stored by the retired family picker to Aperture and returns the current choice.
+  @discardableResult
+  static func migrateStoredFamily(defaults: UserDefaults = .standard) -> MyraIconFamily {
+    if defaults.object(forKey: retiredFamilyKey) != nil {
+      if defaults.object(forKey: familyKey) == nil {
+        defaults.set(MyraIconFamily.aperture.rawValue, forKey: familyKey)
+      }
+      defaults.removeObject(forKey: retiredFamilyKey)
+    }
+    return MyraIconFamily(storedValue: defaults.string(forKey: familyKey))
+  }
+
+  /// The PNG resource name for a choice, for example `spotlight-dark`.
+  static func resourceName(family: MyraIconFamily, appearance: MyraIconAppearance, dark: Bool)
+    -> String
   {
     let resolved = appearance == .automatic ? (dark ? MyraIconAppearance.dark : .light) : appearance
-    let name = "\(family.rawValue)-\(resolved.rawValue)"
+    return "\(family.rawValue)-\(resolved.renditionSuffix)"
+  }
+
+  static func image(family: MyraIconFamily, appearance: MyraIconAppearance, dark: Bool) -> NSImage?
+  {
+    guard let url = resourceURL(named: resourceName(family: family, appearance: appearance, dark: dark))
+    else { return nil }
+    return NSImage(contentsOf: url)
+  }
+
+  static func resourceURL(named name: String) -> URL? {
     #if SWIFT_PACKAGE
       let bundles = [Bundle.module, Bundle.main]
     #else
       let bundles = [Bundle.main]
     #endif
     for bundle in bundles {
-      if let url = bundle.url(forResource: name, withExtension: "png", subdirectory: "MyraIcons"),
-        let image = NSImage(contentsOf: url)
-      {
-        return image
+      if let url = bundle.url(forResource: name, withExtension: "png", subdirectory: "MyraIcons") {
+        return url
       }
     }
     return nil
@@ -68,10 +139,15 @@ final class MyraAppearance {
 }
 
 struct MyraAppearanceSettingsSection: View {
-  @AppStorage(MyraAppearance.familyKey) private var family = MyraIconFamily.signature.rawValue
+  @AppStorage(MyraAppearance.familyKey) private var family = MyraIconFamily.aperture.rawValue
   @AppStorage(MyraAppearance.appearanceKey) private var appearance = MyraIconAppearance.automatic
     .rawValue
   @Environment(\.colorScheme) private var colorScheme
+
+  private var selectedFamily: MyraIconFamily { MyraIconFamily(storedValue: family) }
+  private var selectedAppearance: MyraIconAppearance {
+    MyraIconAppearance(storedValue: appearance)
+  }
 
   var body: some View {
     Section("Myra Icon") {
@@ -80,34 +156,39 @@ struct MyraAppearanceSettingsSection: View {
       }
       HStack(spacing: 16) {
         ForEach(MyraIconFamily.allCases) { option in
+          let isSelected = selectedFamily == option
           Button {
             family = option.rawValue
           } label: {
             VStack(spacing: 6) {
               if let icon = MyraAppearance.image(
                 family: option,
-                appearance: MyraIconAppearance(rawValue: appearance) ?? .automatic,
+                appearance: selectedAppearance,
                 dark: colorScheme == .dark
               ) {
                 Image(nsImage: icon).resizable().frame(width: 64, height: 64)
+                  .accessibilityHidden(true)
               }
               Text(option.title).font(.caption)
-              Image(systemName: family == option.rawValue ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(family == option.rawValue ? Color.accentColor : Color.secondary)
+              Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                .accessibilityHidden(true)
             }
             .padding(8)
             .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
           }
           .buttonStyle(.plain)
           .accessibilityLabel("\(option.title) icon")
-          .accessibilityAddTraits(family == option.rawValue ? .isSelected : [])
+          .accessibilityValue(isSelected ? "Selected" : "Not selected")
+          .accessibilityAddTraits(isSelected ? .isSelected : [])
         }
       }
       Text(
-        "Your choice changes the running Dock icon and is restored at launch. Finder uses Myra's packaged Signature icon. Glass previews are rendered images; the default Signature icon follows Apple's native layered appearance."
+        "Your choice changes only the running Dock icon and is restored at launch. Finder and the app bundle always show Aperture. Clear and Tinted previews are Icon Composer renditions."
       )
       .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
     }
+    .onAppear { MyraAppearance.migrateStoredFamily() }
     .onChange(of: family) { _, _ in MyraAppearance.apply() }
     .onChange(of: appearance) { _, _ in MyraAppearance.apply() }
     .onChange(of: colorScheme) { _, _ in MyraAppearance.apply() }
