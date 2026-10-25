@@ -13,6 +13,8 @@ enum MyraCommand: Hashable, Sendable {
   case setAppearance(AppThemeMode)
   case togglePlayback, skipBack, skipForward, previousEpisode, nextEpisode
   case toggleFullScreen
+  /// Toolbar actions on Home. Routed like menu commands; the Home page performs them.
+  case pickSomething, askMyra
 
   static let notification = Notification.Name("com.mehedee.Myra.menuCommand")
   static let identifierKey = "command"
@@ -23,7 +25,7 @@ enum MyraCommand: Hashable, Sendable {
       .addSource, .openTorrentLink, .importTorrentFile, .refreshLibrary, .find,
       .pauseAllDownloads, .resumeAllDownloads, .clearCompletedDownloads,
       .togglePlayback, .skipBack, .skipForward, .previousEpisode, .nextEpisode,
-      .toggleFullScreen,
+      .toggleFullScreen, .pickSomething, .askMyra,
     ] + AppThemeMode.allCases.map(MyraCommand.setAppearance)
 
   /// Stable string identifier used in notification user info.
@@ -48,6 +50,8 @@ enum MyraCommand: Hashable, Sendable {
     case .previousEpisode: "previousEpisode"
     case .nextEpisode: "nextEpisode"
     case .toggleFullScreen: "toggleFullScreen"
+    case .pickSomething: "pickSomething"
+    case .askMyra: "askMyra"
     }
   }
 
@@ -78,6 +82,19 @@ struct MyraCommandContext: Equatable, Sendable {
   var hasPausedDownloads = false
   var hasCompletedDownloads = false
   var currentSection: AppSection = .home
+}
+
+extension MyraCommandContext {
+  /// The live state of the app, shared by the menu bar and the toolbar so both enable the same actions.
+  @MainActor
+  init(coordinator: AppCoordinator, player: EmbeddedPlayerModel) {
+    self.init(
+      isPlayingMedia: player.media != nil,
+      hasActiveDownloads: coordinator.batches.contains { $0.status == .active },
+      hasPausedDownloads: coordinator.batches.contains { $0.status == .paused },
+      hasCompletedDownloads: coordinator.batches.contains { $0.status == .completed },
+      currentSection: coordinator.currentSection)
+  }
 }
 
 enum MyraCommandAvailability: Equatable {
@@ -120,12 +137,7 @@ struct MyraCommands: Commands {
   @ObservedObject var player: EmbeddedPlayerModel
 
   private var context: MyraCommandContext {
-    MyraCommandContext(
-      isPlayingMedia: player.media != nil,
-      hasActiveDownloads: coordinator.batches.contains { $0.status == .active },
-      hasPausedDownloads: coordinator.batches.contains { $0.status == .paused },
-      hasCompletedDownloads: coordinator.batches.contains { $0.status == .completed },
-      currentSection: coordinator.currentSection)
+    MyraCommandContext(coordinator: coordinator, player: player)
   }
 
   var body: some Commands {
