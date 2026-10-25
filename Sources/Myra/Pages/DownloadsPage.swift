@@ -67,15 +67,6 @@ enum DownloadRowAction: String, CaseIterable, Sendable {
   }
 }
 
-/// A torrent transfer row on the In Progress list. Torrent transfers are not yet connected,
-/// so the page passes an empty list. This type is a placeholder seam, not the torrent model.
-struct DownloadsTorrentRow: Identifiable, Equatable, Sendable {
-  let id: UUID
-  let title: String
-  let progress: Double
-  let statusText: String
-}
-
 enum DownloadsModel {
   /// Every aria2 batch that is not finished. Completed batches live in the Library section.
   static func inProgress(_ batches: [DownloadBatch]) -> [DownloadBatch] {
@@ -95,7 +86,7 @@ enum DownloadsModel {
     return status == .preparing ? primary : primary + [.delete]
   }
 
-  static func summary(_ batches: [DownloadBatch], torrentRows: [DownloadsTorrentRow]) -> String {
+  static func summary(_ batches: [DownloadBatch], torrentRows: [TorrentTransferRow]) -> String {
     let active = batches.filter { $0.status == .active }.count
     let paused = batches.filter { $0.status == .paused }.count
     let total = batches.count + torrentRows.count
@@ -107,12 +98,13 @@ enum DownloadsModel {
 /// Aria2 downloads still in progress, with pause, cancel and retry, plus the torrent seam.
 struct DownloadsInProgressView: View {
   @ObservedObject var coordinator: AppCoordinator
-  /// Torrent rows arrive here once torrent transfers are connected to this page.
-  var torrentRows: [DownloadsTorrentRow] = []
+  @ObservedObject var torrents: TorrentController
   @State private var partialDataBatch: DownloadBatch?
   @State private var deletingBatch: DownloadBatch?
 
   private var batches: [DownloadBatch] { DownloadsModel.inProgress(coordinator.batches) }
+  /// Torrent transfers that are not finished. Completed torrents live in the Library section.
+  private var torrentRows: [TorrentTransferRow] { torrents.transferRows.filter { !$0.isComplete } }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -149,9 +141,12 @@ struct DownloadsInProgressView: View {
           }
           ForEach(torrentRows) { row in
             VStack(alignment: .leading, spacing: 6) {
-              Text(row.title).font(.headline).lineLimit(1)
-              ProgressView(value: row.progress)
-              Text(row.statusText).font(.caption).foregroundStyle(.secondary)
+              HStack {
+                Text(row.name).font(.headline).lineLimit(1)
+                if row.isStreaming { Text("Streaming").font(.caption).foregroundStyle(.tint) }
+              }
+              ProgressView(value: row.bytesTotal > 0 ? Double(row.bytesDone) / Double(row.bytesTotal) : 0)
+              Text(row.state).font(.caption).foregroundStyle(.secondary)
             }
             .padding(.vertical, 8)
           }

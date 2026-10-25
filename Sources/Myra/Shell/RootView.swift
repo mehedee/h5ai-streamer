@@ -36,7 +36,6 @@ struct RootView: View {
   @Environment(\.modelContext) private var modelContext
   @AppStorage(MyraAccent.defaultsKey) private var accentRaw = MyraAccent.default.rawValue
   @State private var section: AppSection? = .home
-  @State private var isDownloadDrawerExpanded = false
 
   init(coordinator: AppCoordinator) {
     self.coordinator = coordinator
@@ -48,7 +47,7 @@ struct RootView: View {
   private var accent: MyraAccent { MyraAccent(rawValue: accentRaw) ?? .default }
 
   var body: some View {
-    GeometryReader { geometry in
+    GeometryReader { _ in
       ZStack {
         CodexBackground()
         VStack(spacing: 0) {
@@ -107,20 +106,12 @@ struct RootView: View {
           if !fullscreenPlayback {
             LibraryIndexStatusView(
               library: coordinator.library, refresh: coordinator.refreshLibraryIndex)
-            if coordinator.hasDownloadQueue {
-              DownloadDrawer(
-                coordinator: coordinator,
-                isExpanded: $isDownloadDrawerExpanded,
-                expandedHeight: min(340, geometry.size.height * 0.43)
-              )
-            }
           }
         }
       }
       .sheet(item: $coordinator.playbackChoices) { choices in
         PlaybackChoicesView(choices: choices, play: coordinator.playChosenVersion)
       }
-      .animation(.snappy(duration: 0.28), value: isDownloadDrawerExpanded)
       .overlay(alignment: .topTrailing) {
         if let message = coordinator.toastMessage, !fullscreenPlayback {
           ToastView(message: message)
@@ -137,9 +128,6 @@ struct RootView: View {
     .environment(\.myraAccent, accent)
     .tint(accent.color)
     .preferredColorScheme(preferredColorScheme)
-    .onChange(of: coordinator.hasDownloadQueue) { _, visible in
-      if !visible { isDownloadDrawerExpanded = false }
-    }
     .onReceive(NotificationCenter.default.publisher(for: MyraCommand.notification)) { note in
       guard let command = MyraCommand(notification: note) else { return }
       handle(command)

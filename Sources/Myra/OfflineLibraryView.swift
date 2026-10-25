@@ -65,7 +65,7 @@ struct OfflineLibraryView: View {
       .accessibilityLabel("Downloads section")
       switch segment {
       case .inProgress:
-        DownloadsInProgressView(coordinator: coordinator)
+        DownloadsInProgressView(coordinator: coordinator, torrents: coordinator.torrents)
       case .library:
         libraryContent
       }

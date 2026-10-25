@@ -48,7 +48,10 @@ final class PagesModelTests: XCTestCase {
   func testSummaryCountsAria2AndTorrentRows() {
     XCTAssertEqual(DownloadsModel.summary([], torrentRows: []), "Nothing is downloading")
     let batches = [DownloadBatch(title: "A", status: .active), DownloadBatch(title: "B", status: .paused)]
-    let torrent = DownloadsTorrentRow(id: UUID(), title: "T", progress: 0.5, statusText: "Seeding")
+    let job = TorrentJob(
+      identity: try! TorrentIdentity(magnet: "magnet:?xt=urn:btih:" + String(repeating: "a", count: 40)),
+      name: "T", source: .magnet("magnet:?xt=urn:btih:" + String(repeating: "a", count: 40)), files: [])
+    let torrent = TorrentTransferRow(job: job, transfer: TorrentTransfer(), isStreaming: false)
     XCTAssertEqual(
       DownloadsModel.summary(batches, torrentRows: [torrent]),
       "3 in progress • 1 active • 1 paused")
