@@ -52,7 +52,8 @@ enum HomeLayout {
 struct HomeView: View {
   @ObservedObject var coordinator: AppCoordinator
   @ObservedObject var store: EntertainmentStore
-  @State private var query = ""
+  /// Shared with the shell's toolbar search field.
+  private var query: String { coordinator.searchText }
   @State private var genre = ""
   @State private var language = ""
   @State private var year = ""
@@ -102,13 +103,9 @@ struct HomeView: View {
   private var watchlist: [EntertainmentTitle] { prepared.watchlist }
   private var automaticShelves: [HomeAutomaticShelf] { prepared.shelves }
 
-  init(
-    coordinator: AppCoordinator, store: EntertainmentStore, initialQuery: String = "",
-    initialMood: MyraMood? = nil
-  ) {
+  init(coordinator: AppCoordinator, store: EntertainmentStore, initialMood: MyraMood? = nil) {
     self.coordinator = coordinator
     self.store = store
-    _query = State(initialValue: initialQuery)
     _mood = State(initialValue: initialMood)
   }
 
@@ -200,7 +197,6 @@ struct HomeView: View {
       }
     }
     .contentMargins(.top, 4, for: .scrollContent)
-    .searchable(text: $query, placement: .toolbar, prompt: "Search or ask Myra")
     .modifier(SearchFocusIfAvailable(isFocused: $searchFocused))
     .onReceive(NotificationCenter.default.publisher(for: MyraCommand.notification)) { note in
       // The shell's page actions post these commands; Home runs its own Pick and Ask actions.
@@ -530,7 +526,7 @@ struct HomeView: View {
   }
 
   private func resetFilters() {
-    query = ""
+    coordinator.searchText = ""
     genre = ""
     language = ""
     year = ""

@@ -17,6 +17,8 @@ final class AppCoordinator: ObservableObject {
   @Published var currentURL: URL?
   /// The sidebar section RootView is showing. Menu availability depends on it.
   @Published var currentSection: AppSection = .home
+  /// Text in the shell's toolbar search field. Pages filter their content with it.
+  @Published var searchText = ""
   @Published var entries: [DirectoryEntry] = []
   @Published var artworkURL: URL?
   @Published var selection = Set<URL>()

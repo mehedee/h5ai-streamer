@@ -67,7 +67,6 @@ struct RootView: View {
   @Environment(\.modelContext) private var modelContext
   @AppStorage(MyraAccent.defaultsKey) private var accentRaw = MyraAccent.default.rawValue
   @State private var section: AppSection = .home
-  @State private var searchText = ""
   @FocusState private var searchFocused: Bool
   @ObservedObject private var torrents: TorrentController
 
@@ -202,7 +201,8 @@ struct RootView: View {
         .fixedSize()
       Spacer(minLength: 12)
       pageActions
-      SearchField(text: $searchText, prompt: section.searchPrompt, isFocused: $searchFocused)
+      SearchField(
+        text: $coordinator.searchText, prompt: section.searchPrompt, isFocused: $searchFocused)
       if downloads.hasDownloads {
         DownloadsRingButton(overview: downloads) {
           MyraCommand.showDownloads.post()
