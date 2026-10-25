@@ -50,22 +50,16 @@ struct EmbeddedPlayerView: View {
   @State private var showMarkers = false
 
   var body: some View {
-    ZStack {
-      Color.black
-      VStack(spacing: 0) {
-        video
-        if !player.isFullscreen { controls }
-      }
-      if player.isFullscreen {
-        VStack(spacing: 0) {
-          header.background(.regularMaterial)
-          Spacer(minLength: 0)
-          controls
+    streamObserver { stream in
+      ZStack {
+        Color.black
+        videoLayer(stream)
+        if PlayerBufferingPresentation.showsCard(
+          isBuffering: player.isBuffering, isTorrentStream: stream.streamingRow != nil)
+        {
+          PlayerBufferingCard(status: stream)
         }
-        .opacity(player.controlsVisible ? 1 : 0)
-        .allowsHitTesting(player.controlsVisible)
-        .accessibilityHidden(!player.controlsVisible)
-        .animation(.easeInOut(duration: 0.18), value: player.controlsVisible)
+        chrome(stream)
       }
     }
     .environment(\.colorScheme, player.isFullscreen ? .dark : colorScheme)
@@ -86,43 +80,68 @@ struct EmbeddedPlayerView: View {
     }
   }
 
-  private var header: some View {
-    VStack(spacing: 0) {
-      HStack(spacing: 12) {
-        Button {
-          player.close()
-        } label: {
-          Label("Back to Library", systemImage: "chevron.left")
-        }
-        VStack(alignment: .leading, spacing: 2) {
-          Text(player.media.map { MediaIdentity.parse(filename: $0.entry.name).title } ?? "Player")
-            .font(.headline).lineLimit(1)
-          Text(player.media?.entry.name ?? "").font(.caption).foregroundStyle(.secondary)
-            .lineLimit(1).playbackHelp(
-              player.media?.entry.name ?? "", fullscreen: player.isFullscreen)
-        }
-        Spacer()
-        Text(player.status).font(.caption).foregroundStyle(.secondary)
-        Button {
-          if player.isFullscreen { player.exitFullscreen() } else { player.toggleFullscreen() }
-        } label: {
-          Image(
-            systemName: player.isFullscreen
-              ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-        }
-        .playbackHelp(
-          player.isFullscreen ? "Exit fullscreen" : "Enter fullscreen",
-          fullscreen: player.isFullscreen
-        )
-        .accessibilityIdentifier("player.fullscreen")
-      }
-      .padding(12)
-      Divider()
+  /// Observes torrent state only when a torrent controller exists; otherwise uses an empty status.
+  @ViewBuilder
+  private func streamObserver<Content: View>(
+    @ViewBuilder _ content: @escaping (PlayerStreamStatus) -> Content
+  ) -> some View {
+    if let torrents = coordinator?.torrents {
+      TorrentStreamObserver(torrents: torrents, player: player, content: content)
+    } else {
+      content(PlayerStreamStatus())
     }
+  }
+
+  /// The top bar, the bottom glass controls and the fullscreen auto-hide, over the video.
+  private func chrome(_ stream: PlayerStreamStatus) -> some View {
+    let visible = !player.isFullscreen || player.controlsVisible
+    return VStack(spacing: 0) {
+      topBar(stream)
+      Spacer(minLength: 0)
+      controlsBar(stream)
+    }
+    .environment(\.colorScheme, .dark)
+    .opacity(visible ? 1 : 0)
+    .allowsHitTesting(visible)
+    .accessibilityHidden(!visible)
+    .animation(.easeInOut(duration: 0.18), value: visible)
+  }
+
+  private var entryName: String { player.media?.entry.name ?? "" }
+
+  private func topBar(_ stream: PlayerStreamStatus) -> some View {
+    HStack(spacing: 10) {
+      Button {
+        player.close()
+      } label: {
+        Image(systemName: "chevron.left")
+      }
+      .buttonStyle(PlayerGlyphStyle())
+      .playbackHelp("Back to Library", fullscreen: player.isFullscreen)
+      Text(player.media.map { MediaIdentity.parse(filename: $0.entry.name).title } ?? "Player")
+        .font(.system(size: 14, weight: .bold))
+        .foregroundStyle(.white)
+        .lineLimit(1)
+        .help(entryName)
+        .accessibilityLabel(entryName)
+      if stream.isTorrentStream {
+        PlayerStatusPill(text: "Torrent stream")
+      }
+      Spacer(minLength: 8)
+      Text(player.status)
+        .font(.system(size: 12))
+        .foregroundStyle(.white.opacity(0.75))
+        .lineLimit(1)
+    }
+    .padding(.horizontal, 18)
+    .padding(.vertical, 14)
+    .background(
+      LinearGradient(colors: [.black.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom)
+    )
     .onHover { player.hoverControls($0) }
   }
 
-  private var video: some View {
+  private func videoLayer(_ stream: PlayerStreamStatus) -> some View {
     ZStack {
       Color.black
       VLCVideoSurface(model: player)
@@ -136,9 +155,12 @@ struct EmbeddedPlayerView: View {
         }
         .padding(24).foregroundStyle(.white).background(
           .black.opacity(0.75), in: RoundedRectangle(cornerRadius: 12))
-      } else if player.isBuffering {
-        ProgressView("Buffering…").padding(18).background(
-          .regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+      } else if player.isBuffering, stream.streamingRow == nil {
+        ProgressView("Buffering…")
+          .foregroundStyle(.white)
+          .padding(.horizontal, 18)
+          .padding(.vertical, 12)
+          .playerGlass(radius: 12)
       }
       if let skip = player.activeSkip, player.isSeekable {
         VStack {
@@ -148,6 +170,7 @@ struct EmbeddedPlayerView: View {
             Button(skip.0) { player.seek(to: skip.1.end / player.duration) }.padding(16)
           }
         }
+        .padding(.bottom, 130)
       }
       if let resume = player.resumePosition, player.isSeekable,
         !player.isFullscreen || player.controlsVisible
@@ -159,7 +182,8 @@ struct EmbeddedPlayerView: View {
             Button("Start Over") { player.resumePosition = nil }
           }
           .padding(12).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-          .padding(16)
+          .padding(.horizontal, 16)
+          .padding(.top, 72)
           Spacer()
         }
       }
@@ -167,119 +191,152 @@ struct EmbeddedPlayerView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 
-  private var controls: some View {
-    VStack(spacing: 6) {
-      HStack(spacing: 10) {
-        Text(
-          PlayerTime.string(
-            player.isScrubbing ? player.scrubPosition * player.duration : player.elapsed)
-        )
-        .monospacedDigit().frame(minWidth: 60, alignment: .trailing)
-        VLCSeekBar(model: player).frame(height: 22).disabled(!player.isSeekable)
-        Button {
-          showRemaining.toggle()
-        } label: {
-          Text(
-            (showRemaining ? "−" : "")
-              + PlayerTime.string(
-                showRemaining ? max(0, player.duration - player.elapsed) : player.duration)
-          )
-          .monospacedDigit().frame(minWidth: 60, alignment: .leading)
-        }.buttonStyle(.plain).playbackHelp(
-          "Toggle duration / remaining time", fullscreen: player.isFullscreen)
-      }
-      GeometryReader { geometry in
-        ZStack {
-          HStack {
-            HStack(spacing: 10) {
-              playbackOptions
-              Button {
-                player.repeatEnabled.toggle()
-              } label: {
-                Image(systemName: "repeat").foregroundStyle(
-                  player.repeatEnabled ? Color.accentColor : Color.primary)
-              }.help("Repeat this video")
-              Button {
-                showEpisodeBrowser = true
-              } label: {
-                Label("Episodes / Files", systemImage: "list.bullet.rectangle")
-              }.labelStyle(.iconOnly).help("Episodes / Files")
-                .disabled(player.sequenceLoading || player.sequence == nil)
-              Button {
-                showPreferences = true
-              } label: {
-                Image(systemName: "gearshape")
-              }.help("Playback preferences")
-              Button {
-                showMarkers = true
-              } label: {
-                Image(systemName: "scissors")
-              }
-              .help("Intro / outro markers").disabled(!player.isSeekable)
-            }
-            Spacer(minLength: 240)
-            HStack(spacing: 8) {
-              Button {
-                player.toggleMute()
-              } label: {
-                Image(systemName: player.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-              }.accessibilityLabel("Mute")
-              Slider(
-                value: Binding(get: { player.volume }, set: { player.setVolume($0) }), in: 0...100
-              )
-              .frame(width: 100).accessibilityLabel("Volume")
-              Text("\(Int(player.volume))%").font(.caption).monospacedDigit().frame(width: 38)
-            }
-          }
-          transport.position(x: geometry.size.width / 2, y: geometry.size.height / 2)
-        }
-      }
-      .frame(height: 30)
-      .buttonStyle(.borderless)
+  /// The bottom glass bar: scrub bar on top, then the transport, time and secondary controls.
+  private func controlsBar(_ stream: PlayerStreamStatus) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+      VLCSeekBar(
+        model: player,
+        bufferedFraction: PlayerScrubLayout.bufferedFraction(
+          position: player.position, bufferedSeconds: stream.bufferedSeconds,
+          duration: player.duration)
+      )
+      .frame(height: 14)
+      .disabled(!player.isSeekable)
+      crow
       if !player.isSeekable && player.isPlaying {
-        Text("This source does not support seeking.").font(.caption).foregroundStyle(.secondary)
+        Text("This source does not support seeking.")
+          .font(.system(size: 11))
+          .foregroundStyle(.white.opacity(0.7))
       }
     }
-    .padding(.horizontal, 14).padding(.vertical, 8).background(.regularMaterial)
+    .padding(.horizontal, 16)
+    .padding(.vertical, 12)
+    .frame(maxWidth: 760)
+    .playerGlass(radius: 16)
+    .padding(.horizontal, 16)
+    .padding(.bottom, 18)
+    .frame(maxWidth: .infinity)
     .onHover { player.hoverControls($0) }
   }
 
-  private var transport: some View {
-    HStack(spacing: 16) {
+  private var crow: some View {
+    HStack(spacing: 4) {
       Button {
         player.navigate(offset: -1)
       } label: {
         Image(systemName: "backward.end.fill")
       }
+      .buttonStyle(PlayerGlyphStyle())
       .disabled(!player.canGoPrevious).accessibilityIdentifier("player.previous").help(
         "Previous video")
       Button {
         player.jump(seconds: -10)
       } label: {
         Image(systemName: "gobackward.10")
-      }.disabled(!player.isSeekable)
+      }
+      .buttonStyle(PlayerGlyphStyle()).disabled(!player.isSeekable).help("Back 10 seconds")
       Button {
         player.togglePlayback()
       } label: {
         Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-      }.font(.title3)
-      Button {
-        player.stop()
-      } label: {
-        Image(systemName: "stop.fill")
       }
+      .buttonStyle(PlayerGlyphStyle(size: 36)).help("Play or pause")
       Button {
         player.jump(seconds: 10)
       } label: {
         Image(systemName: "goforward.10")
-      }.disabled(!player.isSeekable)
+      }
+      .buttonStyle(PlayerGlyphStyle()).disabled(!player.isSeekable).help("Forward 10 seconds")
       Button {
         player.navigate(offset: 1)
       } label: {
         Image(systemName: "forward.end.fill")
       }
+      .buttonStyle(PlayerGlyphStyle())
       .disabled(!player.canGoNext).accessibilityIdentifier("player.next").help("Next video")
-    }.fixedSize()
+      Button {
+        player.stop()
+      } label: {
+        Image(systemName: "stop.fill")
+      }
+      .buttonStyle(PlayerGlyphStyle()).help("Stop")
+      Button {
+        showRemaining.toggle()
+      } label: {
+        Text(
+          PlayerTime.string(
+            player.isScrubbing ? player.scrubPosition * player.duration : player.elapsed)
+            + " / " + (showRemaining ? "−" : "")
+            + PlayerTime.string(
+              showRemaining ? max(0, player.duration - player.elapsed) : player.duration)
+        )
+        .font(.system(size: 12))
+        .monospacedDigit()
+        .foregroundStyle(.white.opacity(0.75))
+        .lineLimit(1)
+        .fixedSize()
+        .padding(.horizontal, 6)
+      }
+      .buttonStyle(.plain)
+      .playbackHelp("Toggle duration / remaining time", fullscreen: player.isFullscreen)
+      Spacer(minLength: 4)
+      Button {
+        player.repeatEnabled.toggle()
+      } label: {
+        Image(systemName: "repeat")
+          .foregroundStyle(player.repeatEnabled ? Color.accentColor : Color.white)
+      }
+      .buttonStyle(PlayerGlyphStyle()).help("Repeat this video")
+      Button {
+        showEpisodeBrowser = true
+      } label: {
+        Image(systemName: "list.bullet.rectangle")
+      }
+      .buttonStyle(PlayerGlyphStyle()).help("Episodes / Files")
+      .disabled(player.sequenceLoading || player.sequence == nil)
+      .accessibilityLabel("Episodes / Files")
+      Button {
+        showPreferences = true
+      } label: {
+        Image(systemName: "gearshape")
+      }
+      .buttonStyle(PlayerGlyphStyle()).help("Playback preferences")
+      Button {
+        showMarkers = true
+      } label: {
+        Image(systemName: "scissors")
+      }
+      .buttonStyle(PlayerGlyphStyle())
+      .help("Intro / outro markers").disabled(!player.isSeekable)
+      playbackOptions
+      Button {
+        player.toggleMute()
+      } label: {
+        Image(systemName: player.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+      }
+      .buttonStyle(PlayerGlyphStyle()).accessibilityLabel("Mute")
+      Slider(
+        value: Binding(get: { player.volume }, set: { player.setVolume($0) }), in: 0...100
+      )
+      .frame(width: 64).tint(.white).accessibilityLabel("Volume")
+      Text("\(Int(player.volume))%")
+        .font(.system(size: 11)).monospacedDigit()
+        .foregroundStyle(.white.opacity(0.75)).frame(width: 30)
+      Button {
+        if player.isFullscreen { player.exitFullscreen() } else { player.toggleFullscreen() }
+      } label: {
+        Image(
+          systemName: player.isFullscreen
+            ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+      }
+      .buttonStyle(PlayerGlyphStyle())
+      .playbackHelp(
+        player.isFullscreen ? "Exit fullscreen" : "Enter fullscreen",
+        fullscreen: player.isFullscreen
+      )
+      .accessibilityIdentifier("player.fullscreen")
+    }
+    .lineLimit(1)
   }
 
   private var playbackOptions: some View {
@@ -401,6 +458,8 @@ final class SeekSlider: NSSlider {
 
 private struct VLCSeekBar: NSViewRepresentable {
   @ObservedObject var model: EmbeddedPlayerModel
+  /// Fraction of the bar buffered ahead of the playhead; drawn translucent behind the played part.
+  var bufferedFraction: Double = 0
   func makeNSView(context: Context) -> SeekSlider {
     let slider = SeekSlider(value: 0, minValue: 0, maxValue: 1, target: nil, action: nil)
     let cell = PlayerSeekSliderCell()
@@ -411,6 +470,8 @@ private struct VLCSeekBar: NSViewRepresentable {
     slider.setAccessibilityLabel("Video playback position")
     slider.setAccessibilityIdentifier("player.seekbar")
     slider.isContinuous = true
+    // The bar is drawn over video, so it always uses the dark appearance.
+    slider.appearance = NSAppearance(named: .darkAqua)
     slider.begin = { [weak model] in model?.isScrubbing = true }
     slider.change = { [weak model] in model?.scrubPosition = $0 }
     slider.commit = { [weak model] value in
@@ -423,6 +484,10 @@ private struct VLCSeekBar: NSViewRepresentable {
     slider.isEnabled = model.isSeekable
     slider.duration = model.duration
     slider.allowsTooltips = !model.isFullscreen
+    if let cell = slider.cell as? PlayerSeekSliderCell, cell.bufferedFraction != bufferedFraction {
+      cell.bufferedFraction = bufferedFraction
+      slider.needsDisplay = true
+    }
     if !model.isScrubbing { slider.doubleValue = model.position }
   }
 }
@@ -438,6 +503,9 @@ enum SeekBarGeometry {
 }
 
 final class PlayerSeekSliderCell: NSSliderCell {
+  /// Buffered-ahead fraction of the bar, drawn as a translucent white part.
+  var bufferedFraction: Double = 0
+
   override func barRect(flipped: Bool) -> NSRect {
     SeekBarGeometry.track(in: controlView?.bounds ?? NSRect(x: 0, y: 0, width: 100, height: 22))
   }
@@ -448,32 +516,34 @@ final class PlayerSeekSliderCell: NSSliderCell {
     return NSRect(
       x: track.minX + track.width * fraction - 8, y: track.midY - 8, width: 16, height: 16)
   }
+  /// The preview's scrub bar: a 5pt track, a translucent buffered part and a solid played part.
+  /// The player sits over video and is pinned to the dark appearance; light drawing keeps contrast.
   override func drawBar(inside rect: NSRect, flipped: Bool) {
-    let rect = barRect(flipped: flipped)
+    let bar = barRect(flipped: flipped).insetBy(dx: 0, dy: 0.5)
+    let radius = bar.height / 2
     let dark = controlView?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-    let track = NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3)
-    (dark ? NSColor.white.withAlphaComponent(0.30) : NSColor.black.withAlphaComponent(0.24))
-      .setFill()
-    track.fill()
-    (dark ? NSColor.white.withAlphaComponent(0.55) : NSColor.black.withAlphaComponent(0.40))
-      .setStroke()
-    track.lineWidth = 1
-    track.stroke()
+    let trackColor =
+      dark ? NSColor.white.withAlphaComponent(0.20) : NSColor.black.withAlphaComponent(0.24)
+    let bufferedColor =
+      dark ? NSColor.white.withAlphaComponent(0.35) : NSColor.black.withAlphaComponent(0.12)
+    let playedColor = dark ? NSColor.white : NSColor.black.withAlphaComponent(0.70)
+    trackColor.setFill()
+    NSBezierPath(roundedRect: bar, xRadius: radius, yRadius: radius).fill()
     let fraction =
       maxValue > minValue ? min(1, max(0, (doubleValue - minValue) / (maxValue - minValue))) : 0
+    let buffered = min(1, max(fraction, bufferedFraction))
+    if buffered > 0 {
+      let part = NSRect(x: bar.minX, y: bar.minY, width: bar.width * buffered, height: bar.height)
+      bufferedColor.setFill()
+      NSBezierPath(roundedRect: part, xRadius: radius, yRadius: radius).fill()
+    }
     if fraction > 0 {
-      let progress = NSRect(
-        x: rect.minX, y: rect.minY, width: rect.width * fraction, height: rect.height)
-      (isEnabled ? NSColor.controlAccentColor : NSColor.secondaryLabelColor).setFill()
-      NSBezierPath(roundedRect: progress, xRadius: 3, yRadius: 3).fill()
+      let played = NSRect(
+        x: bar.minX, y: bar.minY, width: bar.width * fraction, height: bar.height)
+      playedColor.setFill()
+      NSBezierPath(roundedRect: played, xRadius: radius, yRadius: radius).fill()
     }
   }
-  override func drawKnob(_ knobRect: NSRect) {
-    let knob = NSBezierPath(ovalIn: knobRect.insetBy(dx: 1, dy: 1))
-    (isEnabled ? NSColor.white : NSColor.lightGray).setFill()
-    knob.fill()
-    (isEnabled ? NSColor.controlAccentColor : NSColor.gray).setStroke()
-    knob.lineWidth = 2
-    knob.stroke()
-  }
+  /// The preview has no knob on the scrub bar; the played part shows the position.
+  override func drawKnob(_ knobRect: NSRect) {}
 }
