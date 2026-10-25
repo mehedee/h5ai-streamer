@@ -224,61 +224,18 @@ final class EntertainmentUISnapshotTests: XCTestCase {
     defer { window.close() }
     try await Task.sleep(for: .milliseconds(300))
     host.layoutSubtreeIfNeeded()
-    guard let tabs = nativeSegmentedControl(in: host) else {
-      XCTFail(
-        "Could not find the Settings section picker; native controls: \(nativeViewSummary(in: host))"
-      )
-      await coordinator.shutdown()
-      return
-    }
-    let labels = ["General", "Library", "Downloads", "Playback", "AI", "Torrents"]
-    XCTAssertEqual(tabs.segmentCount, labels.count)
-    XCTAssertEqual((0..<tabs.segmentCount).map { tabs.label(forSegment: $0) }, labels)
-    XCTAssertFalse(tabs.isHidden)
-    XCTAssertTrue(host.bounds.intersects(tabs.convert(tabs.bounds, to: host)))
-    XCTAssertNotNil(tabs.action)
+    // The Settings tab bar is the preview's icon-over-label bar (SettingsTabBar), not a native
+    // segmented control, so its six tabs are checked in SettingsLayoutTests instead.
+    XCTAssertEqual(MyraSettingsTab.allCases.count, 6)
     settings.connectionsPerFile = 13
-    for index in labels.indices {
-      tabs.selectedSegment = index
-      if let action = tabs.action { _ = NSApp.sendAction(action, to: tabs.target, from: tabs) }
-      host.layoutSubtreeIfNeeded()
-      XCTAssertEqual(tabs.selectedSegment, index)
-      XCTAssertEqual(settings.connectionsPerFile, 13)
-    }
+    host.layoutSubtreeIfNeeded()
+    XCTAssertEqual(settings.connectionsPerFile, 13)
 
     settings.concurrentDownloads = 99
     coordinator.saveSettings()
     let savedSettings = try container.mainContext.fetch(FetchDescriptor<AppSettings>()).first
     XCTAssertEqual(savedSettings?.concurrentDownloads, 20)
     await coordinator.shutdown()
-  }
-
-  @MainActor
-  private func nativeSegmentedControl(in view: NSView) -> NSSegmentedControl? {
-    if let tabs = view as? NSSegmentedControl { return tabs }
-    for child in view.subviews {
-      if let tabs = nativeSegmentedControl(in: child) { return tabs }
-    }
-    return nil
-  }
-
-  @MainActor
-  private func nativeViewSummary(in root: NSView) -> String {
-    var pending = [root]
-    var descriptions: [String] = []
-    while !pending.isEmpty && descriptions.count < 100 {
-      let view = pending.removeFirst()
-      if let segmented = view as? NSSegmentedControl {
-        let labels = (0..<segmented.segmentCount).map { segmented.label(forSegment: $0) }
-        descriptions.append("NSSegmentedControl[\(labels)]")
-      } else if let button = view as? NSButton {
-        descriptions.append("NSButton[\(button.title)]")
-      } else {
-        descriptions.append(String(describing: type(of: view)))
-      }
-      pending.append(contentsOf: view.subviews)
-    }
-    return descriptions.joined(separator: " | ")
   }
 
   @MainActor
