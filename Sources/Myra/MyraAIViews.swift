@@ -22,6 +22,10 @@ struct MyraAIWorkspaceView: View {
   @State private var availableMinutes = 120
   @State private var requestTask: Task<Void, Never>?
   @State private var result: MyraAIResponse?
+  /// View-side timing for the grounding footer only. Nothing here changes the request.
+  @State private var runStartedAt: Date?
+  @State private var firstWordsAt: Date?
+  @State private var runFinishedAt: Date?
 
   init(
     store: EntertainmentStore, initialFeature: MyraAIFeature = .smartPick,
@@ -104,9 +108,7 @@ struct MyraAIWorkspaceView: View {
             if !ai.settings.enabledFeatures.contains(feature) {
               Text("This feature is disabled. Enable it in AI Settings.").foregroundStyle(.orange)
             }
-            TextEditor(text: $prompt).frame(minHeight: 90, maxHeight: 140)
-              .padding(6).background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-              .accessibilityLabel("Your request or preferences")
+            MyraAIPromptField(text: $prompt, label: "Your request or preferences")
             Text(
               "Describe your mood, constraints, or question. Avoid passwords and private network details."
             )
@@ -150,18 +152,26 @@ struct MyraAIWorkspaceView: View {
               Text(message).foregroundStyle(.orange).textSelection(.enabled)
             }
             if let response = result {
-              Text(response.summary).textSelection(.enabled)
+              MyraAIAnswerText(text: response.summary)
               if !response.tags.isEmpty {
                 Text("Suggested tags: " + response.tags.joined(separator: " · "))
                   .font(.callout).foregroundStyle(.secondary)
               }
-              ForEach(response.recommendations.indices, id: \.self) { offset in
-                let recommendation = response.recommendations[offset]
-                if let title = store.catalogue.first(where: { $0.id == recommendation.titleID }) {
-                  recommendationCard(
-                    title, reason: recommendation.reason, versionID: recommendation.versionID)
+              LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 170), spacing: 10, alignment: .top)],
+                alignment: .leading, spacing: 10
+              ) {
+                ForEach(Array(response.recommendations.enumerated()), id: \.offset) {
+                  offset, recommendation in
+                  if let title = store.catalogue.first(where: { $0.id == recommendation.titleID })
+                  {
+                    recommendationCard(
+                      title, reason: recommendation.reason, versionID: recommendation.versionID,
+                      index: offset)
+                  }
                 }
               }
+              .padding(.top, 12)
               if !response.actions.isEmpty {
                 Divider()
                 Text("Review proposed changes").font(.headline)
@@ -169,18 +179,25 @@ struct MyraAIWorkspaceView: View {
                   .font(.caption).foregroundStyle(.secondary)
                 ForEach(response.actions) { action in actionPreview(action) }
               }
-              Text(response.sourceNote).font(.caption).foregroundStyle(.secondary)
-              if response.path == .deterministicFallback {
-                Label(
-                  "Answered by Myra's fixed-rule recommender. The on-device model did not answer.",
-                  systemImage: "list.bullet.rectangle"
-                ).font(.caption).foregroundStyle(.secondary)
-                if let reason = response.pathReason {
-                  Text("Reason: \(reason)").font(.caption).foregroundStyle(.secondary)
+              VStack(alignment: .leading, spacing: 6) {
+                MyraAIGroundingFooter(
+                  items: MyraAIGroundingLine.footerItems(
+                    providerName: response.path == .deterministicFallback
+                      ? "Fixed-rule picks" : "Generated with \(response.provider)",
+                    pickCount: response.recommendations.count,
+                    timing: timingLabel, provider: ai.settings.provider))
+                if response.path == .deterministicFallback {
+                  Label(
+                    "Answered by Myra's fixed-rule recommender. The on-device model did not answer.",
+                    systemImage: "list.bullet.rectangle"
+                  ).font(.caption).foregroundStyle(.secondary)
+                  if let reason = response.pathReason {
+                    Text("Reason: \(reason)").font(.caption).foregroundStyle(.secondary)
+                  }
                 }
-              } else {
-                Text("Generated with \(response.provider)").font(.caption).foregroundStyle(.secondary)
+                Text(response.sourceNote).font(.caption).foregroundStyle(.secondary)
               }
+              .padding(.top, 12)
               if ai.canUndo {
                 Button("Undo Last Library Change") {
                   do {
@@ -194,8 +211,19 @@ struct MyraAIWorkspaceView: View {
               VStack(alignment: .leading, spacing: 8) {
                 Label("Writing on this Mac…", systemImage: "sparkles")
                   .font(.caption).foregroundStyle(.secondary)
-                Text(ai.partialSummary).textSelection(.enabled)
+                MyraAIAnswerText(text: ai.partialSummary, streaming: true)
+                if let timingLabel {
+                  Text(timingLabel).font(.system(size: 11)).foregroundStyle(MyraColor.text2)
+                }
               }
+            } else if ai.isBusy {
+              VStack(alignment: .leading, spacing: 8) {
+                MyraAIAnswerText(text: "", streaming: true)
+                if let timingLabel {
+                  Text(timingLabel).font(.system(size: 11)).foregroundStyle(MyraColor.text2)
+                }
+              }
+              .frame(minHeight: 48, alignment: .topLeading)
             } else {
               ContentUnavailableView(
                 "Find your next favourite", systemImage: "sparkles",
@@ -227,6 +255,9 @@ struct MyraAIWorkspaceView: View {
       .onChange(of: episodeID) { _, _ in
         subtitleText = nil
         subtitleName = ""
+      }
+      .onChange(of: ai.partialSummary) { _, partial in
+        if !partial.isEmpty, firstWordsAt == nil, runStartedAt != nil { firstWordsAt = Date() }
       }
       .sheet(isPresented: $showingSettings) { MyraAISettingsWindow(ai: ai) }
       .fileImporter(isPresented: $importingSubtitle, allowedContentTypes: [.plainText, .data]) {
@@ -306,45 +337,36 @@ struct MyraAIWorkspaceView: View {
   }
 
   private func recommendationCard(
-    _ title: EntertainmentTitle, reason: String, versionID: String?
+    _ title: EntertainmentTitle, reason: String, versionID: String?, index: Int
   ) -> some View {
     let playbackTitle = Self.playbackTitle(title, versionID: versionID)
-    return HStack(alignment: .top, spacing: 14) {
-      AsyncImage(url: title.posterURL) { image in
-        image.resizable().scaledToFill()
-      } placeholder: {
-        Image(systemName: "film.stack").frame(maxWidth: .infinity, maxHeight: .infinity).background(
-          .quaternary)
-      }.frame(width: 76, height: 108).clipShape(RoundedRectangle(cornerRadius: 8))
-      VStack(alignment: .leading, spacing: 8) {
-        Text(title.displayName).font(.headline)
-        Text(
-          [title.year, title.kind.rawValue.capitalized].compactMap { $0 }.joined(separator: " · ")
-        )
-        .font(.caption).foregroundStyle(.secondary)
-        if let versionID, let version = title.versions.first(where: { $0.id == versionID }),
-          let episode = version.episode
-        {
-          Text(String(format: "Season %d · Episode %02d", version.season ?? 0, episode))
-            .font(.caption).foregroundStyle(.secondary)
-        }
-        if let minutes = MyraAIContext.runtime(playbackTitle) {
-          Text("Known runtime: \(minutes) minutes").font(.caption).foregroundStyle(.secondary)
-        }
-        Text(reason).font(.callout).textSelection(.enabled)
-        HStack {
-          Button(playbackTitle.resumeVersion == nil ? "Play" : "Resume") { play(playbackTitle) }
-            .buttonStyle(.borderedProminent)
-          Button(
-            store.personal.watchlist.contains(title.id)
-              ? "Remove from Watchlist" : "Add to Watchlist"
-          ) {
-            store.toggleWatchlist(title.id)
-          }
-        }
-      }
-    }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-      .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+    let episodeLabel: String? = {
+      guard let versionID, let version = title.versions.first(where: { $0.id == versionID }),
+        let episode = version.episode
+      else { return nil }
+      return String(format: "S%d E%02d", version.season ?? 0, episode)
+    }()
+    let inWatchlist = store.personal.watchlist.contains(title.id)
+    return MyraAIRecommendationCard(
+      title: title,
+      statusLine: MyraAIGroundingLine.recommendationStatus(
+        runtimeMinutes: MyraAIContext.runtime(playbackTitle),
+        kind: title.kind.rawValue.capitalized, episodeLabel: episodeLabel,
+        inWatchlist: inWatchlist, watched: store.personal.watched.contains(title.id)),
+      reason: reason,
+      playLabel: playbackTitle.resumeVersion == nil ? "Play" : "Resume",
+      inWatchlist: inWatchlist, index: index,
+      play: { play(playbackTitle) },
+      toggleWatchlist: { store.toggleWatchlist(title.id) })
+  }
+
+  /// The footer timing: "Thinking…", "First words in … s", then "Done in … s".
+  private var timingLabel: String? {
+    guard let started = runStartedAt else { return nil }
+    return MyraAIGroundingLine.timingLabel(
+      running: ai.isBusy,
+      secondsToFirstWords: firstWordsAt.map { $0.timeIntervalSince(started) },
+      totalSeconds: runFinishedAt.map { $0.timeIntervalSince(started) })
   }
 
   /// Keeps a timed episode recommendation attached to its validated media selection.
@@ -399,13 +421,19 @@ struct MyraAIWorkspaceView: View {
         "\nRecap only Season \(version.season ?? 0), Episode \(version.episode ?? 0). Source: \(subtitleName)."
     }
     result = nil
+    runStartedAt = Date()
+    firstWordsAt = nil
+    runFinishedAt = nil
     requestTask = Task {
       await ai.execute(
         feature: feature, prompt: request, titles: store.catalogue,
         personal: store.personal, revision: store.projectionRevision,
         selectedIDs: selectedIDs.sorted(), subtitleText: feature == .recap ? subtitleText : nil,
         recapVersionID: feature == .recap ? episodeID : nil)
-      if !Task.isCancelled { result = ai.response }
+      if !Task.isCancelled {
+        result = ai.response
+        if result != nil { runFinishedAt = Date() }
+      }
     }
   }
 

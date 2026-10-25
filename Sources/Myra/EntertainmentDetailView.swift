@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// Keeps source identity visible while allowing a persistent manual metadata correction.
+/// Styled with the Home page's shared components: section headers, row cards and button styles.
 struct EntertainmentDetailView: View {
   let title: EntertainmentTitle
   @ObservedObject var store: EntertainmentStore
@@ -21,109 +22,15 @@ struct EntertainmentDetailView: View {
 
   var body: some View {
     ScrollView {
-      VStack(alignment: .leading, spacing: 18) {
-        HStack {
-          VStack(alignment: .leading, spacing: 6) {
-            if let pickFilters {
-              Label("Your pick", systemImage: "dice").font(.headline).foregroundStyle(.secondary)
-              Text("An unwatched title matching \(pickFilters).")
-                .font(.caption).foregroundStyle(.secondary)
-            }
-            Text(current.displayName).font(.largeTitle.bold())
-          }
-          Spacer()
-          if let anotherPick {
-            Button(action: anotherPick) { Label("Another Pick", systemImage: "dice") }
-          }
-          Button(anotherPick == nil ? "Done" : "Close") { dismiss() }
-            .keyboardShortcut(.cancelAction)
-        }
-        HStack(alignment: .top, spacing: 22) {
-          AsyncImage(url: current.posterURL) { image in
-            image.resizable().scaledToFit()
-          } placeholder: {
-            Image(systemName: "film.stack").font(.system(size: 60)).frame(width: 170, height: 230)
-              .background(.quaternary)
-          }
-          .frame(width: 170, height: 250).clipShape(RoundedRectangle(cornerRadius: 12))
-          VStack(alignment: .leading, spacing: 12) {
-            Text(
-              [current.year, current.kind.rawValue.capitalized].compactMap { $0 }.joined(
-                separator: " · ")
-            )
-            .foregroundStyle(.secondary)
-            if let metadata = current.metadata {
-              Label(
-                "TMDB \(metadata.rating, specifier: "%.1f") / 10 • \(metadata.voteCount) votes",
-                systemImage: "star.fill"
-              )
-              .foregroundStyle(.yellow)
-              Text(metadata.overview.isEmpty ? "No synopsis available." : metadata.overview)
-                .textSelection(.enabled)
-              Text(metadata.genres.joined(separator: " · ")).foregroundStyle(.secondary)
-              if let release = metadata.releaseDate { Text("Released: \(release)") }
-              Text("Original language: \(metadata.language)").foregroundStyle(.secondary)
-              Link(
-                "View on TMDB",
-                destination: URL(
-                  string:
-                    "https://www.themoviedb.org/\(current.kind == .series ? "tv" : "movie")/\(metadata.providerID)"
-                )!)
-            } else {
-              Text(
-                "Metadata has not been matched yet. Add a TMDB API key in Settings and update metadata, or correct the filename match below."
-              )
-              .foregroundStyle(.secondary)
-            }
-            HStack {
-              Button(current.resumeVersion == nil ? "Play" : "Resume") { play(current) }
-                .buttonStyle(.borderedProminent)
-              Button(
-                store.personal.watchlist.contains(current.id)
-                  ? "Remove from Watchlist" : "Add to Watchlist"
-              ) { store.toggleWatchlist(current.id) }
-              Button(
-                store.personal.watched.contains(current.id) ? "Mark unwatched" : "Mark watched"
-              ) { store.toggleWatched(current.id) }
-            }
-            if current.kind == .series {
-              Button(
-                store.personal.followed.contains(current.id) ? "Unfollow series" : "Follow series"
-              ) { store.toggleFollow(current.id) }
-            }
-            if !store.personal.collections.isEmpty {
-              Menu("Add to / remove from collection") {
-                ForEach(store.personal.collections) { collection in
-                  Button(
-                    "\(collection.titleIDs.contains(current.id) ? "✓ " : "")\(collection.name)"
-                  ) {
-                    store.toggleCollection(titleID: current.id, collectionID: collection.id)
-                  }
-                }
-              }
-            }
-          }
-        }
+      VStack(alignment: .leading, spacing: 24) {
+        header
+        hero
         if let aiAction {
-          HStack {
-            Label("Explore with Myra", systemImage: "sparkles").font(.headline)
-            Spacer()
-            Menu("AI tools") {
-              Button("More Like This") { aiAction(.similar, current) }
-              Button("Compare Titles") { aiAction(.compare, current) }
-              Button("Short Summary") { aiAction(.summary, current) }
-              Button("Why This Title?") { aiAction(.explain, current) }
-              Button("Suggest Mood Tags") { aiAction(.moodTags, current) }
-              Button("Translate Description") { aiAction(.translate, current) }
-              Button("Episode Recap") { aiAction(.recap, current) }
-                .disabled(current.kind != .series)
-              Button("Suggest Match Corrections") { aiAction(.cleanup, current) }
-            }
-          }
+          SectionHeader(title: "Explore with Myra")
+          aiMenu(aiAction)
         }
-        Divider()
         if current.kind == .series {
-          Text("Available Episodes").font(.title2.bold())
+          SectionHeader(title: "Available Episodes", count: current.versions.count)
           SeasonEpisodeList(
             versions: current.versions, isSeries: true,
             currentID: nil, lastPlayedID: lastPlayedID
@@ -132,49 +39,218 @@ struct EntertainmentDetailView: View {
             selected.versions = [version]
             play(selected)
           }.frame(height: 380)
-
         } else {
-          Text("Available Versions").font(.title2.bold())
-          ForEach(current.versions) { version in
-            EntertainmentVersionRow(version: version, lastPlayed: lastPlayedID == version.id) {
-              var single = current
-              single.versions = [version]
-              play(single)
+          SectionHeader(title: "Available Versions", count: current.versions.count)
+          RowCard(
+            rows: current.versions.map { version in
+              EntertainmentVersionRows.item(
+                version: version, title: version.media.entry.name, tags: [],
+                lastPlayed: lastPlayedID == version.id, nowPlaying: false
+              ) {
+                var single = current
+                single.versions = [version]
+                play(single)
+              }
+            })
+        }
+        correction
+        Text("Metadata provided by TMDB. Myra is not endorsed or certified by TMDB.")
+          .font(.caption).foregroundStyle(MyraColor.text3)
+      }
+      .padding(.horizontal, 28)
+      .padding(.bottom, 28)
+    }
+    .contentMargins(.top, 20, for: .scrollContent)
+    .frame(minWidth: 720, idealWidth: 820, minHeight: 560, idealHeight: 720)
+    .onAppear {
+      correctedTitle = current.name
+      correctedYear = current.year ?? ""
+      correctedKind = current.kind
+      selectedVersion = current.versions.first?.id ?? ""
+    }
+  }
+
+  private var header: some View {
+    HStack(alignment: .top) {
+      VStack(alignment: .leading, spacing: 6) {
+        if let pickFilters {
+          Label("Your pick", systemImage: "dice")
+            .font(.system(size: 13, weight: .semibold)).foregroundStyle(MyraColor.text2)
+          Text("An unwatched title matching \(pickFilters).")
+            .font(.caption).foregroundStyle(MyraColor.text2)
+        }
+        Text(current.displayName)
+          .font(.system(size: 26, weight: .bold))
+          .lineLimit(2)
+      }
+      Spacer(minLength: 12)
+      if let anotherPick {
+        Button(action: anotherPick) { Label("Another Pick", systemImage: "dice") }
+          .buttonStyle(MyraButtonStyle())
+      }
+      Button(anotherPick == nil ? "Done" : "Close") { dismiss() }
+        .buttonStyle(MyraButtonStyle())
+        .keyboardShortcut(.cancelAction)
+    }
+  }
+
+  /// Poster (2:3, 10pt radius), facts, metadata and the action row.
+  private var hero: some View {
+    HStack(alignment: .top, spacing: 24) {
+      Color.clear
+        .aspectRatio(2.0 / 3.0, contentMode: .fit)
+        .overlay {
+          FallbackArtworkView(title: current.displayName, candidates: posterCandidates)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .shadow(color: .black.opacity(0.15), radius: 1.5, y: 1)
+        .frame(width: 180)
+      VStack(alignment: .leading, spacing: 12) {
+        Text(
+          [current.year, current.kind.rawValue.capitalized].compactMap { $0 }.joined(
+            separator: " · ")
+        )
+        .font(.system(size: 12))
+        .foregroundStyle(MyraColor.text2)
+        if let metadata = current.metadata {
+          Label(
+            "TMDB \(metadata.rating, specifier: "%.1f") / 10 • \(metadata.voteCount) votes",
+            systemImage: "star.fill"
+          )
+          .font(.system(size: 12, weight: .semibold))
+          .foregroundStyle(.yellow)
+          Text(metadata.overview.isEmpty ? "No synopsis available." : metadata.overview)
+            .font(.system(size: 13))
+            .lineSpacing(3)
+            .textSelection(.enabled)
+          if !metadata.genres.isEmpty {
+            tagLine(metadata.genres)
+          }
+          VStack(alignment: .leading, spacing: 4) {
+            if let release = metadata.releaseDate {
+              Text("Released: \(release)")
+            }
+            Text("Original language: \(metadata.language)")
+            Link(
+              "View on TMDB",
+              destination: URL(
+                string:
+                  "https://www.themoviedb.org/\(current.kind == .series ? "tv" : "movie")/\(metadata.providerID)"
+              )!)
+          }
+          .font(.system(size: 12))
+          .foregroundStyle(MyraColor.text2)
+        } else {
+          Text(
+            "Metadata has not been matched yet. Add a TMDB API key in Settings and update metadata, or correct the filename match below."
+          )
+          .font(.system(size: 13))
+          .foregroundStyle(MyraColor.text2)
+        }
+        actionRow
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+    }
+  }
+
+  private var actionRow: some View {
+    FlowLayout(spacing: 8) {
+      Button(current.resumeVersion == nil ? "Play" : "Resume") { play(current) }
+        .buttonStyle(MyraButtonStyle(prominent: true))
+      Button(
+        store.personal.watchlist.contains(current.id)
+          ? "Remove from Watchlist" : "Add to Watchlist"
+      ) { store.toggleWatchlist(current.id) }
+        .buttonStyle(MyraButtonStyle())
+      Button(
+        store.personal.watched.contains(current.id) ? "Mark unwatched" : "Mark watched"
+      ) { store.toggleWatched(current.id) }
+        .buttonStyle(MyraButtonStyle())
+      if current.kind == .series {
+        Button(
+          store.personal.followed.contains(current.id) ? "Unfollow series" : "Follow series"
+        ) { store.toggleFollow(current.id) }
+          .buttonStyle(MyraButtonStyle())
+      }
+      if !store.personal.collections.isEmpty {
+        Menu("Add to / remove from collection") {
+          ForEach(store.personal.collections) { collection in
+            Button(
+              "\(collection.titleIDs.contains(current.id) ? "✓ " : "")\(collection.name)"
+            ) {
+              store.toggleCollection(titleID: current.id, collectionID: collection.id)
             }
           }
         }
-        DisclosureGroup("Correct Match / Grouping") {
-          VStack(alignment: .leading, spacing: 10) {
-            Text(
-              "A shared folder is not proof of identity. Correct a file’s title and year to merge alternate versions, or give an incorrectly grouped file its own identity. TMDB ID is optional."
-            )
-            .font(.caption).foregroundStyle(.secondary)
-            Picker("File", selection: $selectedVersion) {
-              ForEach(current.versions) { Text($0.media.entry.name).tag($0.id) }
-            }
-            TextField("Movie or series title", text: $correctedTitle)
-            TextField("Year (optional)", text: $correctedYear)
-            Picker("Type", selection: $correctedKind) {
-              Text("Movie").tag(EntertainmentKind.movie)
-              Text("Series").tag(EntertainmentKind.series)
-            }
-            TextField("TMDB ID (optional, numeric)", text: $providerID)
-            Toggle("Apply to every version in this title", isOn: $applyToAll).toggleStyle(.checkbox)
-            if let correctionError { Text(correctionError).foregroundStyle(.orange) }
-            Button("Save correction") { saveCorrection() }
-              .disabled(correctedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-          }.textFieldStyle(.roundedBorder).padding(.top, 12)
-        }
-        Text("Metadata provided by TMDB. Myra is not endorsed or certified by TMDB.")
-          .font(.caption).foregroundStyle(.secondary)
-      }.padding(24)
-    }.frame(minWidth: 720, idealWidth: 820, minHeight: 560, idealHeight: 720)
-      .onAppear {
-        correctedTitle = current.name
-        correctedYear = current.year ?? ""
-        correctedKind = current.kind
-        selectedVersion = current.versions.first?.id ?? ""
+        .menuStyle(.borderlessButton)
+        .fixedSize()
       }
+    }
+  }
+
+  private func tagLine(_ genres: [String]) -> some View {
+    FlowLayout(spacing: 6) {
+      ForEach(genres, id: \.self) { genre in
+        Text(genre.uppercased())
+          .font(.system(size: 10, weight: .bold))
+          .tracking(0.4)
+          .foregroundStyle(MyraColor.text2)
+          .padding(.horizontal, 6)
+          .padding(.vertical, 1)
+          .background(MyraColor.fill2, in: RoundedRectangle(cornerRadius: 4))
+      }
+    }
+  }
+
+  private func aiMenu(_ aiAction: @escaping (MyraAIFeature, EntertainmentTitle) -> Void)
+    -> some View
+  {
+    Menu {
+      Button("More Like This") { aiAction(.similar, current) }
+      Button("Compare Titles") { aiAction(.compare, current) }
+      Button("Short Summary") { aiAction(.summary, current) }
+      Button("Why This Title?") { aiAction(.explain, current) }
+      Button("Suggest Mood Tags") { aiAction(.moodTags, current) }
+      Button("Translate Description") { aiAction(.translate, current) }
+      Button("Episode Recap") { aiAction(.recap, current) }
+        .disabled(current.kind != .series)
+      Button("Suggest Match Corrections") { aiAction(.cleanup, current) }
+    } label: {
+      Label("AI tools", systemImage: "sparkles")
+    }
+    .menuStyle(.borderlessButton)
+    .fixedSize()
+  }
+
+  private var correction: some View {
+    DisclosureGroup("Correct Match / Grouping") {
+      VStack(alignment: .leading, spacing: 10) {
+        Text(
+          "A shared folder is not proof of identity. Correct a file’s title and year to merge alternate versions, or give an incorrectly grouped file its own identity. TMDB ID is optional."
+        )
+        .font(.caption).foregroundStyle(MyraColor.text2)
+        Picker("File", selection: $selectedVersion) {
+          ForEach(current.versions) { Text($0.media.entry.name).tag($0.id) }
+        }
+        TextField("Movie or series title", text: $correctedTitle)
+        TextField("Year (optional)", text: $correctedYear)
+        Picker("Type", selection: $correctedKind) {
+          Text("Movie").tag(EntertainmentKind.movie)
+          Text("Series").tag(EntertainmentKind.series)
+        }
+        TextField("TMDB ID (optional, numeric)", text: $providerID)
+        Toggle("Apply to every version in this title", isOn: $applyToAll).toggleStyle(.checkbox)
+        if let correctionError { Text(correctionError).foregroundStyle(.orange) }
+        Button("Save correction") { saveCorrection() }
+          .buttonStyle(MyraButtonStyle())
+          .disabled(correctedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      }.textFieldStyle(.roundedBorder).padding(.top, 12)
+    }
+  }
+
+  private var posterCandidates: [ArtworkCandidate] {
+    guard let posterURL = current.posterURL else { return [.titleCard] }
+    return [.image(.tmdbPoster, posterURL)]
   }
 
   private var lastPlayedID: String? {
@@ -277,37 +353,53 @@ struct EntertainmentVersionChooser: View {
   }
 }
 
+/// One version as a row of the Home-style `RowCard`, with its play or resume action.
 struct EntertainmentVersionRow: View {
   let version: EntertainmentVersion
   let lastPlayed: Bool
   let choose: () -> Void
   var body: some View {
-    HStack(alignment: .top, spacing: 12) {
-      Image(systemName: "film").font(.title2).foregroundStyle(.tint)
-      VStack(alignment: .leading, spacing: 5) {
-        Text(version.media.entry.name).font(.headline).textSelection(.enabled)
-        Text(version.quality.isEmpty ? "Quality / encoding unknown" : version.quality)
-          .font(.caption).foregroundStyle(.secondary)
-        Text(
-          "Source: \(version.media.categoryName) • \(version.media.entry.size.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "Size unknown")"
-        )
-        .font(.caption).foregroundStyle(.secondary)
-        Text(version.media.relativePath).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
-        if version.progressSeconds >= 5 {
-          Text(
-            "Saved progress: \(Int(version.progressSeconds / 60)) min \(Int(version.progressSeconds.truncatingRemainder(dividingBy: 60))) sec"
-          )
-          .font(.caption)
-        }
-        if lastPlayed {
-          Label("Previously played", systemImage: "clock.arrow.circlepath").font(.caption)
-            .foregroundStyle(.tint)
-        }
-      }
-      Spacer()
-      Button(version.progressSeconds >= 5 ? "Resume" : "Play", action: choose).buttonStyle(
-        .borderedProminent)
-    }.padding(12).background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+    RowCard(
+      rows: [
+        EntertainmentVersionRows.item(
+          version: version, title: version.media.entry.name, tags: [], lastPlayed: lastPlayed,
+          nowPlaying: false, choose: choose)
+      ])
+  }
+}
+
+/// Maps versions to `RowCard` rows. Shared by movies, episodes and the player's episode browser.
+enum EntertainmentVersionRows {
+  static func item(
+    version: EntertainmentVersion, title: String, tags: [String], lastPlayed: Bool,
+    nowPlaying: Bool, choose: @escaping () -> Void
+  ) -> RowCardItem {
+    var meta = [version.quality.isEmpty ? "Quality unknown" : version.quality]
+    meta.append(version.media.categoryName)
+    if let size = version.media.entry.size {
+      meta.append(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
+    }
+    let hasProgress = version.progressSeconds >= 5
+    if hasProgress {
+      meta.append("Resume at " + PlayerTime.string(version.progressSeconds))
+    }
+    var status: StatusPill?
+    if nowPlaying {
+      status = StatusPill(text: "Now playing", style: .live)
+    } else if lastPlayed {
+      status = StatusPill(text: "Previously played", style: .neutral)
+    }
+    var progress: Double?
+    if hasProgress, version.duration > 0 {
+      progress = min(1, version.progressSeconds / version.duration)
+    }
+    return RowCardItem(
+      id: version.id, title: title, tags: tags, meta: meta, status: status, progress: progress,
+      actions: [
+        RowCardAction(
+          id: "play-\(version.id)", title: hasProgress ? "Resume" : "Play",
+          systemImage: "play.fill", style: .button, action: choose)
+      ])
   }
 }
 
@@ -327,6 +419,7 @@ struct EntertainmentSeason: Identifiable {
 }
 
 /// Shared by Home and playback; only the selected season is expanded initially.
+/// Each season is a section header over a `RowCard` of its episodes.
 struct SeasonEpisodeList: View {
   let versions: [EntertainmentVersion]
   let isSeries: Bool
@@ -337,7 +430,7 @@ struct SeasonEpisodeList: View {
 
   var body: some View {
     ScrollView {
-      LazyVStack(alignment: .leading, spacing: 12) {
+      LazyVStack(alignment: .leading, spacing: 16) {
         if isSeries {
           ForEach(EntertainmentSeason.seasons(versions)) { season in
             DisclosureGroup(
@@ -352,27 +445,31 @@ struct SeasonEpisodeList: View {
                 }
               )
             ) {
-              VStack(spacing: 8) {
-                ForEach(season.episodes) { episode in episodeRow(episode) }
-              }.padding(.top, 10)
+              RowCard(rows: season.episodes.flatMap { episodeItems($0) })
+                .padding(.top, 8)
             } label: {
-              HStack {
-                Text(season.label).font(.headline)
-                Spacer()
+              HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(season.label)
+                  .font(.system(size: 15, weight: .semibold))
                 Text(
                   "\(season.episodes.count) \(season.episodes.count == 1 ? "episode" : "episodes")"
-                ).font(.caption).foregroundStyle(.secondary)
-              }.padding(.vertical, 6)
+                )
+                .font(.system(size: 12))
+                .foregroundStyle(MyraColor.text3)
+                Spacer(minLength: 8)
+              }
+              .contentShape(Rectangle())
             }
-            .padding(14).background(
-              .quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
           }
         } else {
-          ForEach(versions) { version in
-            EntertainmentVersionRow(version: version, lastPlayed: version.id == lastPlayedID) {
-              choose(version)
-            }
-          }
+          RowCard(
+            rows: versions.map { version in
+              EntertainmentVersionRows.item(
+                version: version, title: version.media.entry.name, tags: [],
+                lastPlayed: version.id == lastPlayedID,
+                nowPlaying: version.id == currentID
+              ) { choose(version) }
+            })
         }
       }
     }
@@ -384,56 +481,18 @@ struct SeasonEpisodeList: View {
     }
   }
 
-  @ViewBuilder private func episodeRow(_ episode: EntertainmentEpisodeGroup) -> some View {
-    if episode.versions.count > 1 {
-      DisclosureGroup {
-        ForEach(episode.versions) { version in
-          EntertainmentVersionRow(version: version, lastPlayed: version.id == lastPlayedID) {
-            choose(version)
-          }
-        }
-      } label: {
-        HStack {
-          episodeLabel(episode)
-          Spacer()
-          Text("\(episode.versions.count) versions").font(.caption).foregroundStyle(.secondary)
-        }
-      }.padding(10).background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
-    } else if let version = episode.versions.first {
-      HStack(spacing: 12) {
-        episodeLabel(episode)
-        Spacer()
-        VStack(alignment: .trailing, spacing: 4) {
-          Text(version.quality.isEmpty ? "Quality unknown" : version.quality)
-          Text(version.media.categoryName)
-        }.font(.caption).foregroundStyle(.secondary).lineLimit(1)
-        Button(version.progressSeconds >= 5 ? "Resume" : "Play") { choose(version) }
-          .buttonStyle(.borderedProminent)
-      }.padding(10).background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
-        .help(version.media.entry.name)
-    }
-  }
-
-  private func episodeLabel(_ episode: EntertainmentEpisodeGroup) -> some View {
-    VStack(alignment: .leading, spacing: 4) {
-      HStack(spacing: 6) {
-        if episode.versions.contains(where: { $0.id == currentID }) {
-          Image(systemName: "play.circle.fill").foregroundStyle(.tint)
-        }
-        Text(episode.episode.map { String(format: "Episode %02d", $0) } ?? episode.label).font(
-          .headline)
-        if episode.versions.contains(where: { $0.id == lastPlayedID }) {
-          Text("Last played").font(.caption).foregroundStyle(.tint)
-        }
-      }
-      if let progress = episode.versions.first(where: { $0.progressSeconds >= 5 }) {
-        Text("Resume at " + PlayerTime.string(progress.progressSeconds)).font(.caption)
-          .foregroundStyle(.secondary)
-        if progress.duration > 0 {
-          ProgressView(value: min(1, progress.progressSeconds / progress.duration)).frame(
-            maxWidth: 180)
-        }
-      }
+  /// One episode's rows: a single version reads as the episode; several versions are listed by file.
+  private func episodeItems(_ episode: EntertainmentEpisodeGroup) -> [RowCardItem] {
+    let episodeLabel = episode.episode.map { String(format: "Episode %02d", $0) } ?? episode.label
+    let grouped = episode.versions.count > 1
+    return episode.versions.map { version in
+      EntertainmentVersionRows.item(
+        version: version,
+        title: grouped ? version.media.entry.name : episodeLabel,
+        tags: grouped ? [episodeLabel] : [],
+        lastPlayed: version.id == lastPlayedID,
+        nowPlaying: version.id == currentID
+      ) { choose(version) }
     }
   }
 }
