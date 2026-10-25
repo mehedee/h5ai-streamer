@@ -38,6 +38,24 @@ enum MyraAIFeature: String, Codable, CaseIterable, Identifiable, Sendable {
     case .insights: "Viewing Insights"
     }
   }
+  /// One typed output shape per feature. Chosen here in code, never by inspecting prompt text.
+  var outputFormat: MyraAIOutputFormat {
+    switch self {
+    case .smartPick, .naturalSearch, .similar, .plan: .picks
+    case .explain, .summary, .compare, .moodTags, .recap, .translate, .insights: .narrative
+    case .collection, .action, .assistant, .cleanup, .preferences: .actions
+    }
+  }
+  /// Features whose request constraints can be read locally before any model call.
+  var usesLocalIntent: Bool {
+    [.naturalSearch, .smartPick, .plan, .collection, .assistant, .action].contains(self)
+  }
+  /// Only these features send synopses; every other feature gets the compact one-line form.
+  var needsSynopsis: Bool {
+    [.summary, .explain, .compare, .moodTags, .translate, .similar, .recap].contains(self)
+  }
+  /// Recommendation features answer deterministically when the on-device model cannot.
+  var isRecommendation: Bool { [.smartPick, .naturalSearch, .similar, .plan].contains(self) }
   var hint: String {
     switch self {
     case .smartPick:
@@ -64,6 +82,36 @@ enum MyraAIFeature: String, Codable, CaseIterable, Identifiable, Sendable {
   }
 }
 
+/// Typed output shapes. Titles are always referenced by the tN aliases offered in the request.
+enum MyraAIOutputFormat: String, Sendable, CaseIterable {
+  case picks, narrative, actions
+  static let maximumRecommendations = 3
+  static let maximumActions = 4
+}
+
+/// How a recommendation result was produced. The UI labels the path so users know what answered.
+enum MyraAIResultPath: String, Codable, Sendable {
+  case model, deterministicFallback
+}
+
+/// One model request. `purpose` selects the typed schema; `aliases` restricts titleID choices.
+struct MyraAIRequest: Sendable {
+  enum Purpose: Sendable, Equatable {
+    case intent(MyraAIFeature)
+    case answer(MyraAIFeature, MyraAIOutputFormat)
+  }
+  var provider: MyraAIProvider
+  var model: String
+  var key: String
+  var instructions: String
+  var prompt: String
+  var maximumTokens: Int
+  var language: String
+  var purpose: Purpose
+  var aliases: [String] = []
+  var onPartialSummary: (@Sendable (String) -> Void)? = nil
+}
+
 struct MyraAISettings: Codable, Sendable {
   var provider: MyraAIProvider = .apple
   var model = ""
@@ -85,7 +133,7 @@ struct MyraAIRecommendation: Codable, Sendable, Identifiable {
   var id: String { titleID }
 }
 
-enum MyraAIActionKind: String, Codable, Sendable {
+enum MyraAIActionKind: String, Codable, Sendable, CaseIterable {
   case addWatchlist, markWatched, collection, correction, preference, showResults, play
 }
 struct MyraAIAction: Codable, Sendable, Identifiable {
@@ -114,6 +162,8 @@ struct MyraAIResponse: Codable, Sendable {
   var tags: [String]
   var provider: String
   var sourceNote: String
+  var path: MyraAIResultPath? = nil
+  var pathReason: String? = nil
 }
 
 /// All model-facing identities are temporary aliases, never source URLs or paths.
@@ -132,7 +182,7 @@ struct MyraAICandidate: Codable, Sendable {
   var watchlisted: Bool?
   var filenames: [String]? = nil
 }
-struct MyraSearchIntent: Codable, Sendable {
+struct MyraSearchIntent: Codable, Sendable, Equatable {
   var query: String? = nil
   var genre: String? = nil
   var language: String? = nil
@@ -144,6 +194,7 @@ struct MyraSearchIntent: Codable, Sendable {
   var unfinished: Bool? = nil
   var watchlisted: Bool? = nil
   var maximumMinutes: Int? = nil
+  var watched: Bool? = nil
 
   /// Models can emit empty strings or defaults for optional fields. Only request-backed
   /// constraints may exclude indexed titles; moods remain model-facing ranking guidance.
@@ -164,7 +215,9 @@ struct MyraSearchIntent: Codable, Sendable {
     let numbers = request.split { !$0.isNumber && $0 != "." }.compactMap { Double($0) }
     result.query = meaningful(query)
     result.genre = meaningful(genre)
-    if let value = result.genre, !mentions([value]) { result.genre = nil }
+    if let value = result.genre, !MyraGenreVocabulary.mentions(value, in: request) {
+      result.genre = nil
+    }
     result.language = meaningful(language)?.lowercased()
     if let code = result.language {
       let englishName = Locale(identifier: "en").localizedString(forLanguageCode: code)
@@ -205,6 +258,11 @@ struct MyraSearchIntent: Codable, Sendable {
     if watchlisted == true, !mentions(["watchlist", "watch list", "saved to watch"]) {
       result.watchlisted = nil
     }
+    if watched == true,
+      unwatched == true || !mentions(["rewatch", "watched", "already", "seen before", "finished"])
+    {
+      result.watched = nil
+    }
     if let minutes = maximumMinutes, minutes <= 0 { result.maximumMinutes = nil }
     return result
   }
@@ -229,9 +287,33 @@ enum MyraAIError: LocalizedError {
   case missingKey, consent, limit, invalidResponse, unsafeAction
   case missingContext(String)
   case http(Int)
+  /// On-device failures, each with its own user-facing message (see MyraAppleModelErrors).
+  case contextOverflow, decodingFailure, guardrail, refusal, assetsUnavailable, busy
+  case unsupportedSchema, timedOut
+  var isRetryableWithLessContext: Bool {
+    switch self {
+    case .contextOverflow, .decodingFailure, .invalidResponse: true
+    default: false
+    }
+  }
   var errorDescription: String? {
     switch self {
     case .unavailable(let reason): reason
+    case .contextOverflow:
+      "The request is too large for the on-device model. Myra retried with less context; try a narrower request."
+    case .decodingFailure:
+      "The on-device model returned output Myra could not read. Try again or use a narrower request."
+    case .guardrail:
+      "Apple's on-device safety guardrails blocked this request. Rephrase it without the sensitive detail."
+    case .refusal:
+      "The on-device model declined this request. Rephrase it or choose another tool."
+    case .assetsUnavailable:
+      "The on-device model is still downloading or unavailable. Check Apple Intelligence in System Settings."
+    case .busy: "The on-device model is busy with another request. Try again in a moment."
+    case .unsupportedSchema:
+      "Myra's result format is not supported by the on-device model on this Mac. Use a cloud provider or update macOS."
+    case .timedOut:
+      "The on-device model did not finish within 20 seconds. Myra stopped the request; try again or narrow the request."
     case .missingKey: "Save your own provider API key in AI Settings."
     case .consent: "Enable cloud requests in AI Settings before sending catalogue information."
     case .limit:
