@@ -1,4 +1,5 @@
 #include "LoopbackStream.hpp"
+#include <algorithm>
 #include <libtorrent/magnet_uri.hpp>
 #include <libtorrent/read_resume_data.hpp>
 #include <libtorrent/write_resume_data.hpp>
@@ -77,6 +78,68 @@ static std::string mime(const std::string& path) {
   if (extension == ".mpg" || extension == ".mpeg" || extension == ".vob") return "video/mpeg";
   if (extension == ".wmv" || extension == ".flv" || extension == ".ogv") return "application/octet-stream";
   return "";
+}
+// Read-ahead policy. The engine does not parse container headers, so the
+// bitrate is an estimate used only to size the window ahead of the playhead.
+constexpr std::int64_t kReadAheadSeconds = 60;
+constexpr std::int64_t kAssumedBitrateBytesPerSecond = 1250000; // about 10 Mbit/s
+constexpr std::int64_t kMinimumReadAheadBytes = 8 * 1024 * 1024;
+// The first few megabytes at the playhead are the most urgent; the rest of the window follows.
+constexpr std::int64_t kUrgentBytes = 4 * 1024 * 1024;
+static std::int64_t readAheadBytes() {
+  return std::max(kMinimumReadAheadBytes, kReadAheadSeconds * kAssumedBitrateBytesPerSecond);
+}
+struct ReadAheadState {
+  int index = -1;
+  std::uint64_t generation = 0;
+  int playPiece = -1;
+  int windowEnd = -1;
+};
+// Only the selected file is wanted. The first and last pieces (container headers
+// and indexes) and the urgent bytes at the playhead get top priority, the rest of
+// the read-ahead window default priority, and the remainder of the file low priority.
+// The gradient keeps libtorrent's picker near the playhead instead of spreading
+// bandwidth across the whole window. Changes apply on the next engine tick, so a
+// seek re-prioritises immediately. Piece deadlines are deliberately not used:
+// the verified-piece broker owns its own deadlines and clearing them would starve reads.
+static void prioritizeReadAhead(lt::torrent_handle& handle, const lt::torrent_info& info,
+    const myra::StreamFile& video, std::int64_t playAbsolute, std::uint64_t generation,
+    int index, ReadAheadState& state) {
+  const auto pieceLength = info.piece_length();
+  const std::int64_t fileEnd = video.offset + video.size - 1;
+  const int first = static_cast<int>(video.offset / pieceLength);
+  const int last = static_cast<int>(fileEnd / pieceLength);
+  const auto clamped = std::clamp(playAbsolute, video.offset, fileEnd);
+  const int play = static_cast<int>(clamped / pieceLength);
+  const int windowEnd = std::min(last, static_cast<int>((clamped + readAheadBytes()) / pieceLength));
+  if (state.index == index && state.generation == generation && state.playPiece == play
+      && state.windowEnd == windowEnd) return;
+  std::vector<lt::download_priority_t> priorities(info.num_pieces(), lt::dont_download);
+  for (int piece = first; piece <= last; ++piece) priorities[piece] = lt::low_priority;
+  const int urgentPieces = static_cast<int>(std::max<std::int64_t>(1, (kUrgentBytes + pieceLength - 1) / pieceLength));
+  const int urgentEnd = std::min(windowEnd, play + urgentPieces - 1);
+  for (int piece = play; piece <= windowEnd; ++piece) priorities[piece] = lt::default_priority;
+  for (int piece = play; piece <= urgentEnd; ++piece) priorities[piece] = lt::top_priority;
+  priorities[first] = lt::top_priority;
+  priorities[last] = lt::top_priority;
+  handle.prioritize_pieces(priorities);
+  state = {index, generation, play, windowEnd};
+}
+// Contiguous verified bytes available from the playhead, bounded by the window.
+static std::int64_t bufferedAhead(const lt::torrent_handle& handle, const lt::torrent_info& info,
+    const myra::StreamFile& video, std::int64_t playAbsolute) {
+  const auto pieceLength = info.piece_length();
+  const std::int64_t end = video.offset + video.size;
+  const auto clamped = std::clamp(playAbsolute, video.offset, end - 1);
+  const std::int64_t maximumPieces = readAheadBytes() / pieceLength + 2;
+  std::int64_t position = clamped;
+  for (std::int64_t piece = clamped / pieceLength, checked = 0;
+       piece < info.num_pieces() && position < end && checked < maximumPieces; ++piece, ++checked) {
+    if (piece * pieceLength > end) break;
+    if (!handle.have_piece(lt::piece_index_t(static_cast<int>(piece)))) break;
+    position = std::min(end, (piece + 1) * pieceLength);
+  }
+  return position - clamped;
 }
 static std::map<int, myra::StreamFile> metadata(const lt::torrent_info& info) {
   const auto& files = info.files();
@@ -188,6 +251,7 @@ int main(int argc, char** argv) {
     bool seed = false, completeNotice = false;
     int selected = -1;
     int requestedSelection = -1;
+    ReadAheadState readAhead;
     auto lastStatus = std::chrono::steady_clock::now();
     auto lastSave = lastStatus;
     std::atomic<bool> saveComplete{false};
@@ -242,6 +306,13 @@ int main(int argc, char** argv) {
           handle.prioritize_files(priorities); handle.resume();
           emit("{\"event\":\"stream\",\"index\":" + std::to_string(selected) + ",\"url\":" + quote(stream->select(selected)) + "}");
         }
+        if (selected >= 0 && stream && broker) {
+          const auto info = handle.torrent_file();
+          const auto playhead = stream->playhead();
+          const auto& video = videos.at(selected);
+          const auto playAbsolute = video.offset + std::min(playhead.offset, video.size - 1);
+          prioritizeReadAhead(handle, *info, video, playAbsolute, playhead.generation, selected, readAhead);
+        }
         auto now = std::chrono::steady_clock::now();
         if (now - lastStatus > 1s) {
           lastStatus = now;
@@ -251,6 +322,20 @@ int main(int argc, char** argv) {
             + ",\"uploadSpeed\":" + std::to_string(status.upload_payload_rate) + ",\"peers\":" + std::to_string(status.num_peers)
             + ",\"paused\":" + (bool(handle.flags() & lt::torrent_flags::paused) ? "true" : "false") + "}");
           auto progress = handle.file_progress();
+          if (selected >= 0 && stream && broker && selected < static_cast<int>(progress.size())) {
+            const auto info = handle.torrent_file();
+            const auto& video = videos.at(selected);
+            const auto playhead = stream->playhead();
+            const auto playAbsolute = video.offset + std::min(playhead.offset, video.size - 1);
+            const auto buffered = bufferedAhead(handle, *info, video, playAbsolute);
+            const double seconds = static_cast<double>(buffered) / static_cast<double>(kAssumedBitrateBytesPerSecond);
+            const double percent = 100.0 * static_cast<double>(progress[selected]) / static_cast<double>(video.size);
+            emit("{\"event\":\"buffer\",\"bufferedSeconds\":" + std::to_string(seconds)
+              + ",\"bufferedBytes\":" + std::to_string(buffered)
+              + ",\"peers\":" + std::to_string(status.num_peers)
+              + ",\"downloadSpeed\":" + std::to_string(status.download_payload_rate)
+              + ",\"percent\":" + std::to_string(percent) + "}");
+          }
           if (selected >= 0 && selected < static_cast<int>(progress.size()) && progress[selected] >= videos.at(selected).size && !completeNotice) {
             completeNotice = true;
             if (!seed) handle.pause();

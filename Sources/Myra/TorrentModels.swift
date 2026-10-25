@@ -1,7 +1,7 @@
 import Foundation
 
 enum TorrentError: LocalizedError {
-  case invalidIdentity, unsafePath, invalidSettings, protectedDownload
+  case invalidIdentity, unsafePath, invalidSettings, protectedDownload, consentRequired
   case quota(required: Int64, available: Int64)
   case database(String)
   var errorDescription: String? {
@@ -11,6 +11,8 @@ enum TorrentError: LocalizedError {
     case .invalidSettings:
       "Choose a cache size between 1 and 10,240 GB and a non-negative upload limit."
     case .protectedDownload: "Stop playback and turn off Keep Download before removing this cache."
+    case .consentRequired:
+      "Accept the torrent privacy notice before networking. Torrent networking starts only after you add a link."
     case .quota(let required, let available):
       "This torrent needs \(ByteCountFormatter.string(fromByteCount: required, countStyle: .file)); \(ByteCountFormatter.string(fromByteCount: available, countStyle: .file)) is available in the cache. Increase the limit or remove an unused torrent."
     case .database(let message): "Torrent database: \(message)"
@@ -112,11 +114,87 @@ struct TorrentFile: Codable, Hashable, Identifiable, Sendable {
     let entry = DirectoryEntry(name: name, url: URL(fileURLWithPath: path), kind: .file)
     return hasSafePath && size > 0 && MediaFileType.isVideo(entry)
   }
+  /// Season and episode from the file name. Files without markers keep natural path order.
+  var episode: TorrentEpisode? { TorrentEpisode(fileName: name) }
+  /// Series episodes first in season/episode order, then remaining videos in natural order.
   static func playbackOrder(_ files: [Self]) -> [Self] {
-    files.filter(\.isPlayable).sorted {
-      let comparison = $0.path.localizedStandardCompare($1.path)
-      return comparison == .orderedSame ? $0.index < $1.index : comparison == .orderedAscending
+    files.filter(\.isPlayable).sorted { lhs, rhs in
+      switch (lhs.episode, rhs.episode) {
+      case let (left?, right?) where left != right: return left < right
+      case (.some, .none): return true
+      case (.none, .some): return false
+      default:
+        let comparison = lhs.path.localizedStandardCompare(rhs.path)
+        return comparison == .orderedSame
+          ? lhs.index < rhs.index : comparison == .orderedAscending
+      }
     }
+  }
+  /// The file Play and Download act on before the user picks another one. A series starts at
+  /// its first episode; otherwise the largest video is chosen (lowest index breaks ties).
+  static func defaultSelection(in files: [Self]) -> Self? {
+    let playable = playbackOrder(files)
+    if playable.contains(where: { $0.episode != nil }) { return playable.first }
+    return playable.sorted { lhs, rhs in
+      lhs.size != rhs.size ? lhs.size > rhs.size : lhs.index < rhs.index
+    }.first
+  }
+}
+
+struct TorrentEpisode: Comparable, Sendable {
+  let season: Int
+  let number: Int
+  static func < (lhs: Self, rhs: Self) -> Bool {
+    (lhs.season, lhs.number) < (rhs.season, rhs.number)
+  }
+  /// Recognises S01E02, S1 E2 and 1x02 markers. Numbers are bounded to avoid overflow.
+  init?(fileName: String) {
+    let pattern = #"(?i)(?:^|[^a-z0-9])s(\d{1,3})[ ._-]?e(\d{1,4})(?!\d)|(?:^|[^0-9])(\d{1,2})x(\d{1,3})(?!\d)"#
+    guard let expression = try? NSRegularExpression(pattern: pattern),
+      let match = expression.firstMatch(
+        in: fileName, range: NSRange(fileName.startIndex..., in: fileName))
+    else { return nil }
+    func number(_ group: Int) -> Int? {
+      let range = match.range(at: group)
+      guard range.location != NSNotFound, let swiftRange = Range(range, in: fileName) else {
+        return nil
+      }
+      return Int(fileName[swiftRange])
+    }
+    guard let season = number(1) ?? number(3), let episode = number(2) ?? number(4) else {
+      return nil
+    }
+    self.season = season
+    self.number = episode
+  }
+}
+
+/// Plain value for Downloads and Transfers screens. Built from controller state only.
+struct TorrentTransferRow: Identifiable, Equatable, Sendable {
+  let id: String
+  let name: String
+  let state: String
+  let bytesDone: Int64
+  let bytesTotal: Int64
+  let downloadSpeed: Int64
+  let peers: Int
+  let isStreaming: Bool
+  let isComplete: Bool
+  let isPaused: Bool
+  let bufferedSeconds: Double
+
+  init(job: TorrentJob, transfer: TorrentTransfer, isStreaming: Bool) {
+    id = job.id
+    name = job.name
+    state = transfer.state
+    bytesDone = transfer.downloaded
+    bytesTotal = transfer.total
+    downloadSpeed = transfer.downloadSpeed
+    peers = transfer.peers
+    self.isStreaming = isStreaming
+    isComplete = transfer.completed
+    isPaused = transfer.paused
+    bufferedSeconds = transfer.bufferedSeconds
   }
 }
 

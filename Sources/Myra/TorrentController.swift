@@ -11,6 +11,11 @@ struct TorrentTransfer: Sendable {
   var peers = 0
   var paused = true
   var completed = false
+  var exported = false
+  /// Contiguous verified seconds ahead of the playhead, estimated from the read-ahead bitrate.
+  var bufferedSeconds: Double = 0
+  /// Percent of the streamed video that is verified on disk.
+  var streamPercent: Double = 0
 }
 
 @MainActor
@@ -22,9 +27,12 @@ final class TorrentController: ObservableObject {
   @Published var notice: String?
   @Published private(set) var ready = false
   @Published var selectingJob: TorrentIdentity?
-  @Published var networkAllowed = false
+  /// Set when a link waits for the one-time networking consent.
+  @Published var consentRequest: PendingTorrentLink?
+  @Published private(set) var consentGrantedAt: Date?
   @Published private(set) var importing = false
   let discovery = TorrentDiscoveryModel()
+  let consent: TorrentConsent
   private var importTask: Task<Void, Never>?
   private var database: TorrentDatabase?
   private var cache: TorrentCache?
@@ -35,13 +43,36 @@ final class TorrentController: ObservableObject {
   private var activePlayback: (TorrentIdentity, Int)?
   private var completion = Set<String>()
   private var retiring = Set<String>()
+  /// Download intent for the selected file. In memory only; a paused download that
+  /// survives an app restart completes into the cache without an automatic export.
+  private var downloadIntent: [String: Int] = [:]
   var playStream: ((GlobalSearchResult, Double?) -> Void)?
   var closePlayer: (() -> Void)?
   var playerAutoplay: (() -> Bool)?
+  /// Shared download folder, supplied by the coordinator from the app's download setting.
+  var downloadDirectory: (() -> URL?)?
   var storageURL: URL?
   var engineURL: URL?
   // Isolated integration fixtures connect only to this explicitly injected loopback peer.
   var testPeerPort: Int?
+
+  var hasConsent: Bool { consentGrantedAt != nil }
+
+  init(consent: TorrentConsent = TorrentConsent()) {
+    self.consent = consent
+    consentGrantedAt = consent.grantedAt
+  }
+
+  /// Rows for the Transfers and Downloads screens. Derived only from controller state.
+  var transferRows: [TorrentTransferRow] {
+    jobs.map { job in
+      TorrentTransferRow(
+        job: job, transfer: transfers[job.id] ?? TorrentTransfer(),
+        isStreaming: activePlayback?.0 == job.identity)
+    }
+  }
+
+  var streamingRow: TorrentTransferRow? { transferRows.first(where: \.isStreaming) }
 
   func load() async {
     guard !ready else { return }
@@ -70,19 +101,34 @@ final class TorrentController: ObservableObject {
       ready = true
     } catch { self.error = error.localizedDescription }
   }
+
+  /// Magnet and .torrent links from paste, Finder, a browser, or drag and drop share this route.
+  func handleOpenURL(_ url: URL) {
+    switch TorrentLinkRouter.route(url) {
+    case .magnet(let value):
+      Task { await load(); await addMagnet(value) }
+    case .torrentFile(let file):
+      Task { await load(); await importTorrentFile(file) }
+    case .ignored:
+      break
+    }
+  }
+
   func addMagnet(_ value: String) async {
     do {
       guard ready else { throw TorrentError.database("Torrent storage is not ready.") }
       let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
       let identity = try TorrentIdentity(magnet: text)
+      guard hasConsent else {
+        consentRequest = .magnet(text)
+        return
+      }
       if let job = jobs.first(where: { $0.identity == identity }) {
         selectingJob = identity
         if job.files.isEmpty { try await start(job) }
         return
       }
-      let name =
-        URLComponents(string: text)?.queryItems?.first(where: { $0.name == "dn" })?.value
-        ?? "Resolving magnet…"
+      let name = TorrentLinkRouter.displayName(magnet: text) ?? "Magnet link"
       let job = TorrentJob(identity: identity, name: name, source: .magnet(text), files: [])
       try await database?.save(job)
       jobs.insert(job, at: 0)
@@ -90,6 +136,7 @@ final class TorrentController: ObservableObject {
       try await start(job)
     } catch { self.error = error.localizedDescription }
   }
+
   func chooseTorrentFile() {
     let panel = NSOpenPanel()
     panel.allowedContentTypes = [UTType(filenameExtension: "torrent") ?? .data]
@@ -97,23 +144,31 @@ final class TorrentController: ObservableObject {
     panel.canChooseDirectories = false
     panel.begin { [weak self] response in
       guard response == .OK, let url = panel.url else { return }
-      Task { @MainActor in
-        do {
-          let data = try await Task.detached { () -> Data in
-            guard url.pathExtension.lowercased() == "torrent",
-              try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? Int.max <= 16 * 1024
-                * 1024
-            else { throw TorrentError.unsafePath }
-            return try Data(contentsOf: url)
-          }.value
-          await self?.importTorrent(data)
-        } catch { self?.error = error.localizedDescription }
-      }
+      Task { @MainActor in await self?.importTorrentFile(url) }
     }
   }
+
+  func importTorrentFile(_ url: URL) async {
+    do {
+      let data = try await Task.detached { () -> Data in
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard url.pathExtension.lowercased() == "torrent",
+          try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? Int.max <= 16 * 1024 * 1024
+        else { throw TorrentError.unsafePath }
+        return try Data(contentsOf: url)
+      }.value
+      await importTorrent(data)
+    } catch { self.error = error.localizedDescription }
+  }
+
   func importTorrent(_ data: Data) async {
     do {
       guard data.count <= 16 * 1024 * 1024, let root else { throw TorrentError.unsafePath }
+      guard hasConsent else {
+        consentRequest = .torrentData(data)
+        return
+      }
       let imports = root.appending(path: "Imports")
       try FileManager.default.createDirectory(
         at: imports, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -138,10 +193,9 @@ final class TorrentController: ObservableObject {
       selectingJob = identity
     } catch { self.error = error.localizedDescription }
   }
+
   private func start(_ job: TorrentJob) async throws {
-    guard networkAllowed else {
-      throw TorrentError.database("Enable torrent networking after reading the privacy notice.")
-    }
+    guard hasConsent else { throw TorrentError.consentRequired }
     guard !retiring.contains(job.id) else {
       throw TorrentError.database("Wait for this torrent to finish stopping.")
     }
@@ -189,8 +243,13 @@ final class TorrentController: ObservableObject {
       throw error
     }
   }
+
+  /// Play starts the stream as soon as the engine answers. Download keeps the file in the
+  /// cache and copies it to the shared download folder when it completes.
   @discardableResult
-  func select(_ identity: TorrentIdentity, file: TorrentFile, play: Bool) async -> Bool {
+  func select(
+    _ identity: TorrentIdentity, file: TorrentFile, play: Bool, download: Bool = false
+  ) async -> Bool {
     do {
       guard file.isPlayable, let index = jobs.firstIndex(where: { $0.identity == identity }),
         jobs[index].files.contains(file), let cache
@@ -203,8 +262,15 @@ final class TorrentController: ObservableObject {
         let client = clients[identity.rawValue]
       else { return false }
       jobs[index].selectedFileIndex = file.index
+      if download {
+        jobs[index].keepDownload = true
+        downloadIntent[identity.rawValue] = file.index
+      } else if play {
+        downloadIntent.removeValue(forKey: identity.rawValue)
+      }
       try await database?.save(jobs[index])
       guard clients[identity.rawValue] === client else { return false }
+      if download { await cache.protect(identity, active: true, retained: true) }
       if play { pendingPlay.insert(identity.rawValue) }
       try clients[identity.rawValue]?.command("select", values: ["index": file.index])
       selectingJob = nil
@@ -215,6 +281,20 @@ final class TorrentController: ObservableObject {
       return false
     }
   }
+
+  private func stateText(_ transfer: TorrentTransfer, identity: TorrentIdentity) -> String {
+    if transfer.exported { return "Saved to Downloads" }
+    if transfer.completed {
+      return preferences.seedAfterCompletion && !transfer.paused ? "Seeding" : "Completed"
+    }
+    if transfer.paused { return "Paused" }
+    if transfer.total <= 0 { return "Resolving metadata…" }
+    if activePlayback?.0 == identity && transfer.bufferedSeconds < 5 {
+      return "Buffering · \(Int(transfer.bufferedSeconds.rounded())) s ahead"
+    }
+    return "Downloading"
+  }
+
   private func receive(_ event: TorrentEngineEvent, identity: TorrentIdentity) async {
     guard let index = jobs.firstIndex(where: { $0.identity == identity }) else { return }
     switch event.event {
@@ -239,11 +319,15 @@ final class TorrentController: ObservableObject {
       transfer.uploadSpeed = event.uploadSpeed ?? 0
       transfer.peers = event.peers ?? 0
       transfer.paused = event.paused ?? false
-      transfer.state =
-        transfer.completed
-        ? (preferences.seedAfterCompletion && !transfer.paused ? "Seeding" : "Completed")
-        : (transfer.paused
-          ? "Paused" : (transfer.total > 0 ? "Downloading" : "Resolving metadata…"))
+      transfer.state = stateText(transfer, identity: identity)
+      transfers[identity.rawValue] = transfer
+    case "buffer":
+      var transfer = transfers[identity.rawValue] ?? TorrentTransfer()
+      transfer.bufferedSeconds = event.bufferedSeconds ?? 0
+      transfer.streamPercent = event.percent ?? 0
+      transfer.peers = event.peers ?? transfer.peers
+      transfer.downloadSpeed = event.downloadSpeed ?? transfer.downloadSpeed
+      transfer.state = stateText(transfer, identity: identity)
       transfers[identity.rawValue] = transfer
     case "stream":
       guard let url = event.url, url.scheme == "http", url.host == "127.0.0.1",
@@ -267,18 +351,65 @@ final class TorrentController: ObservableObject {
     case "complete":
       transfers[identity.rawValue]?.completed = true
       notice = "Download completed: \(jobs[index].name)"
+      if let fileIndex = jobs[index].selectedFileIndex,
+        downloadIntent[identity.rawValue] == fileIndex
+      {
+        await exportDownload(identity, fileIndex: fileIndex)
+      }
     case "error":
       error = event.message ?? "Torrent operation failed."
       cancel(identity)
     default: break
     }
   }
+
+  private func exportDownload(_ identity: TorrentIdentity, fileIndex: Int) async {
+    guard let job = jobs.first(where: { $0.identity == identity }),
+      let file = job.files.first(where: { $0.index == fileIndex }), let cache,
+      let destinationRoot = downloadDirectory?()
+    else {
+      error = "Choose a download folder in Settings before downloading a torrent."
+      return
+    }
+    do {
+      let source = cache.root.appending(path: identity.rawValue).appending(path: file.path)
+      let relative = TorrentExportPath.relativePath(jobName: job.name, file: file)
+      let destination = try DestinationSafety.destination(
+        root: destinationRoot, relativePath: relative)
+      let saved = try await Task.detached {
+        try Self.copyUnique(source, to: destination)
+      }.value
+      transfers[identity.rawValue]?.exported = true
+      transfers[identity.rawValue]?.state = "Saved to Downloads"
+      notice = "Saved \(saved.lastPathComponent) to Downloads."
+    } catch { self.error = error.localizedDescription }
+  }
+
+  /// Never overwrites an existing download: a numbered name is chosen instead.
+  nonisolated static func copyUnique(_ source: URL, to destination: URL) throws -> URL {
+    let manager = FileManager.default
+    try manager.createDirectory(
+      at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+    let base = destination.deletingPathExtension().lastPathComponent
+    let extensionSuffix = destination.pathExtension.isEmpty ? "" : "." + destination.pathExtension
+    var target = destination
+    var counter = 2
+    while manager.fileExists(atPath: target.path) {
+      target = destination.deletingLastPathComponent().appending(
+        path: "\(base) \(counter)\(extensionSuffix)")
+      counter += 1
+    }
+    try manager.copyItem(at: source, to: target)
+    return target
+  }
+
   func pause(_ identity: TorrentIdentity) {
     do {
       try clients[identity.rawValue]?.command("pause")
       transfers[identity.rawValue]?.paused = true
     } catch { self.error = error.localizedDescription }
   }
+
   func resume(_ identity: TorrentIdentity) async {
     guard let job = jobs.first(where: { $0.identity == identity }) else { return }
     do {
@@ -292,6 +423,7 @@ final class TorrentController: ObservableObject {
       }
     } catch { self.error = error.localizedDescription }
   }
+
   func cancel(_ identity: TorrentIdentity) {
     if activePlayback?.0 == identity {
       closePlayer?()
@@ -311,6 +443,7 @@ final class TorrentController: ObservableObject {
         retained: jobs.first(where: { $0.identity == identity })?.keepDownload ?? false)
     }
   }
+
   func setKeep(_ identity: TorrentIdentity, keep: Bool) async {
     guard let index = jobs.firstIndex(where: { $0.identity == identity }) else { return }
     do {
@@ -321,6 +454,7 @@ final class TorrentController: ObservableObject {
         retained: keep)
     } catch { self.error = error.localizedDescription }
   }
+
   func remove(_ identity: TorrentIdentity) async {
     do {
       guard clients[identity.rawValue] == nil, !retiring.contains(identity.rawValue),
@@ -333,6 +467,7 @@ final class TorrentController: ObservableObject {
       transfers.removeValue(forKey: identity.rawValue)
     } catch { self.error = error.localizedDescription }
   }
+
   func savePreferences() async {
     do {
       let validated = try preferences.validated()
@@ -346,7 +481,9 @@ final class TorrentController: ObservableObject {
       notice = "Torrent settings saved."
     } catch { self.error = error.localizedDescription }
   }
+
   func isTorrent(_ media: GlobalSearchResult) -> Bool { streamFiles[media.entry.url] != nil }
+
   func record(_ media: GlobalSearchResult, seconds: Double, duration: Double) {
     guard let (identity, index) = streamFiles[media.entry.url] else { return }
     guard !completion.contains(identity.fileKey(index: index)) else { return }
@@ -355,6 +492,7 @@ final class TorrentController: ObservableObject {
         identity: identity, fileIndex: index, seconds: seconds, duration: duration)
     }
   }
+
   func ended(_ media: GlobalSearchResult) -> Bool {
     guard let (identity, index) = streamFiles[media.entry.url] else { return false }
     completion.insert(identity.fileKey(index: index))
@@ -368,13 +506,69 @@ final class TorrentController: ObservableObject {
     guard let current = files.firstIndex(where: { $0.index == index }),
       files.indices.contains(current + 1)
     else { return false }
+    // The next episode takes over this playback, so closing this one must not forget the torrent.
+    activePlayback = nil
     Task { if !(await select(identity, file: files[current + 1], play: true)) { closePlayer?() } }
     return true
   }
+
   func playerClosed() {
-    if let (identity, _) = activePlayback { try? clients[identity.rawValue]?.command("deselect") }
+    guard let playback = activePlayback else { return }
+    let identity = playback.0
     activePlayback = nil
+    try? clients[identity.rawValue]?.command("deselect")
+    let keep = jobs.first(where: { $0.identity == identity })?.keepDownload == true
+    if !keep, downloadIntent[identity.rawValue] == nil { forgetAfterWatching(identity) }
   }
+
+  /// "Keep after watching" off: stop the engine and delete this torrent's cache once it has exited.
+  private func forgetAfterWatching(_ identity: TorrentIdentity) {
+    cancel(identity)
+    Task { [weak self] in
+      guard let self else { return }
+      while self.retiring.contains(identity.rawValue) {
+        try? await Task.sleep(for: .milliseconds(100))
+      }
+      guard self.activePlayback?.0 != identity, !self.pendingPlay.contains(identity.rawValue),
+        self.clients[identity.rawValue] == nil,
+        self.jobs.first(where: { $0.identity == identity })?.keepDownload != true,
+        self.downloadIntent[identity.rawValue] == nil
+      else { return }
+      do {
+        await self.cache?.protect(identity, active: false, retained: false)
+        try await self.cache?.remove(identity)
+        try await self.database?.remove(identity)
+        self.jobs.removeAll { $0.identity == identity }
+        self.transfers.removeValue(forKey: identity.rawValue)
+      } catch { self.error = error.localizedDescription }
+    }
+  }
+
+  // MARK: Consent
+
+  /// Records the one-time consent, then continues the link that asked for it.
+  func grantConsent() {
+    consent.grant()
+    consentGrantedAt = consent.grantedAt
+    guard let pending = consentRequest else { return }
+    consentRequest = nil
+    switch pending {
+    case .magnet(let value): Task { await addMagnet(value) }
+    case .torrentData(let data): Task { await importTorrent(data) }
+    }
+  }
+
+  func declineConsent() {
+    consentRequest = nil
+  }
+
+  /// Withdrawing consent stops every running transfer. Cached files are kept until removed.
+  func withdrawConsent() {
+    consent.withdraw()
+    consentGrantedAt = nil
+    for job in jobs where clients[job.id] != nil { cancel(job.identity) }
+  }
+
   func importDiscovery(_ item: TorrentDiscoveryItem) {
     cancelImport()
     importing = true
@@ -403,11 +597,13 @@ final class TorrentController: ObservableObject {
       }
     }
   }
+
   func cancelImport() {
     importTask?.cancel()
     importTask = nil
     importing = false
   }
+
   func shutdown() {
     cancelImport()
     discovery.cancel()

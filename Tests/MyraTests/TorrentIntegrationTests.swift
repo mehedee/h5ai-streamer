@@ -6,6 +6,13 @@ import XCTest
 @testable import Myra
 
 final class TorrentIntegrationTests: XCTestCase {
+  /// Each test gets its own defaults suite so the real app's consent is never read or written.
+  private func isolatedConsent() -> TorrentConsent {
+    let suite = "Myra-torrent-consent-\(UUID())"
+    let defaults = UserDefaults(suiteName: suite) ?? .standard
+    return TorrentConsent(defaults: defaults)
+  }
+
   func testDiscoverySourceValidationSeparatesKeysAndRejectsUnsafeTransports() throws {
     XCTAssertEqual(
       try TorznabSource.validatedEndpoint("https://index.example/api").host, "index.example")
@@ -104,11 +111,11 @@ final class TorrentIntegrationTests: XCTestCase {
         identity: id, name: "Series",
         source: .magnet("magnet:?xt=urn:btih:" + String(repeating: "a", count: 40)),
         files: [TorrentFile(index: 0, path: "Episode 1.mp4", size: 1024)], keepDownload: true))
-    let controller = TorrentController()
+    let controller = TorrentController(consent: isolatedConsent())
     controller.storageURL = root
     await controller.load()
     XCTAssertTrue(controller.ready)
-    XCTAssertFalse(controller.networkAllowed)
+    XCTAssertFalse(controller.hasConsent)
     XCTAssertEqual(controller.jobs.count, 1)
     XCTAssertTrue(controller.transfers[id.rawValue]?.paused == true)
     await controller.resume(id)
@@ -152,16 +159,19 @@ final class TorrentIntegrationTests: XCTestCase {
     let root = URL(fileURLWithPath: "/private/tmp", isDirectory: true).appending(
       path: "Myra-torrent-end-to-end-\(UUID())")
     defer { try? FileManager.default.removeItem(at: root) }
-    let controller = TorrentController()
+    let consent = isolatedConsent()
+    consent.grant()
+    let controller = TorrentController(consent: consent)
     controller.storageURL = root
     controller.engineURL = URL(fileURLWithPath: engine)
     controller.testPeerPort = port
-    controller.networkAllowed = true
     await controller.load()
     let data = try Data(contentsOf: URL(fileURLWithPath: torrent))
     await controller.importTorrent(data)
     XCTAssertNil(controller.error)
     let job = try XCTUnwrap(controller.jobs.first)
+    // Keep after watching: playback closure must not forget this fixture's cache.
+    await controller.setKeep(job.identity, keep: true)
     let file = try XCTUnwrap(job.files.first)
     XCTAssertTrue(file.isPlayable)
     var played: GlobalSearchResult?
@@ -226,7 +236,7 @@ final class TorrentIntegrationTests: XCTestCase {
     controller.playerClosed()
     controller.cancel(job.identity)
     try await Task.sleep(for: .seconds(6))
-    let restored = TorrentController()
+    let restored = TorrentController(consent: consent)
     restored.storageURL = root
     restored.engineURL = URL(fileURLWithPath: engine)
     restored.testPeerPort = port
@@ -235,7 +245,6 @@ final class TorrentIntegrationTests: XCTestCase {
     let database = try TorrentDatabase(url: root.appending(path: "torrents.sqlite"))
     let progress = try await database.progress(identity: job.identity, fileIndex: file.index)
     XCTAssertEqual(progress?.seconds, 12)
-    restored.networkAllowed = true
     restored.playStream = { _, seconds in resumed = seconds }
     let restoredSelection = await restored.select(job.identity, file: file, play: true)
     XCTAssertTrue(restoredSelection)
@@ -261,7 +270,7 @@ final class TorrentIntegrationTests: XCTestCase {
     let root = FileManager.default.temporaryDirectory.appending(
       path: "Myra-torrent-layout-\(UUID())")
     defer { try? FileManager.default.removeItem(at: root) }
-    let controller = TorrentController()
+    let controller = TorrentController(consent: isolatedConsent())
     controller.storageURL = root
     await controller.load()
     let host = NSHostingView(rootView: TorrentsView(controller: controller))

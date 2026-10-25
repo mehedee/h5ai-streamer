@@ -155,6 +155,7 @@ struct MyraApp: App {
       RootView(coordinator: coordinator)
         .modelContainer(container)
         .frame(minWidth: 1_000, minHeight: 650)
+        .onOpenURL { coordinator.torrents.handleOpenURL($0) }
         .onAppear {
           MyraAppearance.apply()
           coordinator.updater.start()
