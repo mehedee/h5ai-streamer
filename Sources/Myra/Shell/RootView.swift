@@ -432,9 +432,43 @@ private struct ShellSidebar: View {
       .foregroundStyle(MyraColor.text2)
       .monospacedDigit()
       .lineLimit(1)
+      if library.isRefreshing {
+        Button("Cancel indexing") { library.cancel() }
+          .controlSize(.small)
+      } else {
+        Menu("Manage index") {
+          Button("Refresh due folders") { coordinator.refreshLibraryIndex() }
+          Button("Choose folders…") { library.showIndexManagement = true }
+          Button("Full rescan…") { library.showIndexManagement = true }
+        }
+        .font(.system(size: 11)).menuIndicator(.hidden).fixedSize()
+      }
+      if !library.isRefreshing, let error = library.errorMessage {
+        Text(error).font(.system(size: 11)).foregroundStyle(.orange).lineLimit(2)
+      }
+      if !library.isRefreshing, library.errorMessage == nil, !library.failures.isEmpty {
+        Menu("\(library.failures.count) unavailable") {
+          ForEach(library.failures) { failure in
+            Text("\(failure.categoryName): \(failure.summary)")
+          }
+        }
+        .font(.system(size: 11)).foregroundStyle(.orange)
+        .menuIndicator(.hidden).fixedSize()
+      }
     }
     .padding(8)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(MyraColor.fill, in: RoundedRectangle(cornerRadius: 10))
+    .sheet(isPresented: $library.showIndexManagement) { IndexManagementView(library: library) }
+    .alert(
+      "Library Index Refresh",
+      isPresented: Binding(
+        get: { library.completionMessage != nil },
+        set: { if !$0 { library.completionMessage = nil } })
+    ) {
+      Button("OK") { library.completionMessage = nil }
+    } message: {
+      Text(library.completionMessage ?? "")
+    }
   }
 }
