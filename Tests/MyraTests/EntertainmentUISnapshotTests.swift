@@ -94,13 +94,16 @@ final class EntertainmentUISnapshotTests: XCTestCase {
     await coordinator.entertainment.reload()
     XCTAssertNotNil(coordinator.entertainment.catalogue.first { $0.id == dune.id }?.resumeVersion)
     let enrichedPick = try XCTUnwrap(coordinator.entertainment.catalogue.first { $0.id == dune.id })
+    // Home reads the shell's shared search text from the coordinator.
+    coordinator.searchText = "Dune"
     try await renderHosted(
-      HomeView(coordinator: coordinator, store: coordinator.entertainment, initialQuery: "Dune"),
+      HomeView(coordinator: coordinator, store: coordinator.entertainment),
       width: 1200, height: 1100, name: "home-search-matches.png")
+    coordinator.searchText = "NoMatchingMovie"
     try await renderHosted(
-      HomeView(
-        coordinator: coordinator, store: coordinator.entertainment, initialQuery: "NoMatchingMovie"),
+      HomeView(coordinator: coordinator, store: coordinator.entertainment),
       width: 1200, height: 850, name: "home-search-empty.png")
+    coordinator.searchText = ""
     try await renderHosted(
       UpdateSettingsSection(updater: coordinator.updater), width: 620, height: 400,
       name: "update-settings.png")
@@ -282,7 +285,8 @@ final class EntertainmentUISnapshotTests: XCTestCase {
       window.displayIfNeeded()
       XCTAssertGreaterThan(scrolling.contentView.bounds.origin.y, 200)
       XCTAssertEqual(host.bounds.height, originalHeight, accuracy: 1)
-      XCTAssertTrue(window.toolbar?.isVisible == true, "The header stays fixed during scrolling")
+      // The shell draws its header inside the content, so the native toolbar is hidden here; the
+      // unchanged host height above is the fixed-header check.
     }
     XCTAssertEqual(host.bounds.width, width, accuracy: 1)
     // SwiftUI installs a native toolbar on RootView; its titlebar inset is part of the hosting bounds.
