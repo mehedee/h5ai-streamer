@@ -101,6 +101,8 @@
 		F3BB6CA427F836C0B6A334EA /* MyraCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDCE6F9B1D3B11440C2EBF4E /* MyraCommands.swift */; };
 		653192EF4F58F98E939617A9 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FDC256E3C373839A82D19FB /* RootView.swift */; };
 		1A7F869B20EBFC80216D4F03 /* TorrentLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 611770139B2493A3DA7527D2 /* TorrentLinks.swift */; };
+		B872EEDD9BD583A0D4854D42 /* SettingsRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36D7D6DF67AEF8514FBA1AF9 /* SettingsRows.swift */; };
+		3FC1B21E34EBDFB641834ACD /* DownloadsPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2D0BA3C055AD766DF64A3AD /* DownloadsPopover.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -209,6 +211,8 @@
 		DDCE6F9B1D3B11440C2EBF4E /* MyraCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell/MyraCommands.swift; sourceTree = "<group>"; };
 		1FDC256E3C373839A82D19FB /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell/RootView.swift; sourceTree = "<group>"; };
 		611770139B2493A3DA7527D2 /* TorrentLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentLinks.swift; sourceTree = "<group>"; };
+		36D7D6DF67AEF8514FBA1AF9 /* SettingsRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pages/SettingsRows.swift; sourceTree = "<group>"; };
+		D2D0BA3C055AD766DF64A3AD /* DownloadsPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell/DownloadsPopover.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -254,6 +258,8 @@
 		C01000000000000000000002 /* Myra */ = {
 			isa = PBXGroup;
 			children = (
+				36D7D6DF67AEF8514FBA1AF9 /* SettingsRows.swift */,
+				D2D0BA3C055AD766DF64A3AD /* DownloadsPopover.swift */,
 				08A837A345609DEA69ED1FC6 /* ArtworkDiskCache.swift */,
 				2BDEA59275F1A5B503DAAA68 /* ArtworkLoader.swift */,
 				F260D95F83550692FDE91259 /* ArtworkResolver.swift */,
@@ -446,6 +452,8 @@ F44000000000000000000001, F44000000000000000000002,
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B872EEDD9BD583A0D4854D42 /* SettingsRows.swift in Sources */,
+				3FC1B21E34EBDFB641834ACD /* DownloadsPopover.swift in Sources */,
 				18FC2194CEE7BA06D02129A6 /* ArtworkDiskCache.swift in Sources */,
 				094AAE005AB70B6498839116 /* ArtworkLoader.swift in Sources */,
 				4A2728F226CAE14DF998AB62 /* ArtworkResolver.swift in Sources */,
