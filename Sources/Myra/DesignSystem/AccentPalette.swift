@@ -33,11 +33,12 @@ enum MyraAccent: String, CaseIterable, Identifiable, Sendable {
     }
   }
 
-  /// Light and dark RGB values in 0xRRGGBB form. Multicolor is Myra's indigo; the rest follow
+  /// Light and dark RGB values in 0xRRGGBB form. Multicolor is Myra's indigo from the preview;
+  /// the rest follow
   /// the macOS system accent palette.
   var hexValues: (light: UInt32, dark: UInt32) {
     switch self {
-    case .multicolor: (0x4F46E5, 0x818CF8)
+    case .multicolor: (0x5B4BDB, 0x8B7CFF)
     case .blue: (0x007AFF, 0x0A84FF)
     case .purple: (0xAF52DE, 0xBF5AF2)
     case .pink: (0xFF2D55, 0xFF375F)

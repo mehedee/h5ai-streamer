@@ -56,7 +56,7 @@ final class AccentPaletteTests: XCTestCase {
     XCTAssertEqual(MyraAccent.blue.hexValues.dark, 0x0A84FF)
     XCTAssertEqual(MyraAccent.red.hexValues.light, 0xFF3B30)
     XCTAssertEqual(MyraAccent.green.hexValues.dark, 0x32D74B)
-    XCTAssertEqual(MyraAccent.multicolor.hexValues.light, 0x4F46E5)
+    XCTAssertEqual(MyraAccent.multicolor.hexValues.light, 0x5B4BDB)
   }
 
   func testDynamicColourResolvesPerAppearance() throws {
