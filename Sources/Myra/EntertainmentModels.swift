@@ -14,6 +14,8 @@ struct EntertainmentMetadata: Codable, Sendable, Equatable {
   var language: String
   var runtimeMinutes: Int? = nil
   var episodeReleaseDates: [String: String]? = nil
+  /// TMDB backdrop (w780). Optional so metadata cached before this field existed still decodes.
+  var backdropURL: URL? = nil
 }
 
 struct EntertainmentVersion: Identifiable, Sendable, Hashable, Codable {
@@ -103,6 +105,8 @@ struct EntertainmentPersonalData: Codable, Sendable {
   var matchCorrections: [String: EntertainmentMatchCorrection] = [:]
   var preferences = EntertainmentPreferences()
   var history: [String: EntertainmentPlaybackRecord] = [:]
+  /// Automatic Home shelf choices. Nil for personal data written before shelves existed.
+  var homeCategories: HomeCategoryPreferences? = nil
 }
 
 enum EntertainmentGrouping {

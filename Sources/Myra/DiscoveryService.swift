@@ -108,8 +108,10 @@ actor DiscoveryService {
     var genres: [Genre]?
     var runtime: Int?
     var episodeRunTime: [Int]?
+    var backdropPath: String?
     enum CodingKeys: String, CodingKey {
       case id, title, name, overview, genres, runtime
+      case backdropPath = "backdrop_path"
       case episodeRunTime = "episode_run_time"
       case posterPath = "poster_path"
       case voteAverage = "vote_average"
@@ -184,7 +186,10 @@ actor DiscoveryService {
       rating: item.voteAverage ?? 0, voteCount: item.voteCount ?? 0,
       releaseDate: item.releaseDate ?? item.firstAirDate, genres: item.genres?.map(\.name) ?? [],
       language: item.originalLanguage ?? "",
-      runtimeMinutes: item.runtime ?? item.episodeRunTime?.first)
+      runtimeMinutes: item.runtime ?? item.episodeRunTime?.first,
+      backdropURL: item.backdropPath.flatMap {
+        URL(string: "https://image.tmdb.org/t/p/w780\($0)")
+      })
     if title.kind == .series {
       var dates: [String: String] = [:]
       let seasons = Set(title.versions.compactMap(\.season)).sorted()
