@@ -69,14 +69,19 @@ final class ShellCommandTests: XCTestCase {
     XCTAssertTrue(MyraCommand.clearCompletedDownloads.availability(in: busy).isEnabled)
   }
 
-  func testItemsWithoutHandlersAreDisabledWithAReason() {
-    let context = MyraCommandContext(isPlayingMedia: true, hasActiveDownloads: true)
-    for command in [MyraCommand.addSource, .openTorrentLink, .find] {
-      guard case .disabled(let reason) = command.availability(in: context) else {
-        return XCTFail("\(command.identifier) should be disabled until wired")
+  func testAddSourceAndFindFollowTheVisibleSection() {
+    let sources = MyraCommandContext(currentSection: .sources)
+    XCTAssertTrue(MyraCommand.addSource.availability(in: sources).isEnabled)
+    XCTAssertTrue(MyraCommand.find.availability(in: sources).isEnabled)
+
+    let transfers = MyraCommandContext(currentSection: .transfers)
+    for command in [MyraCommand.addSource, .find] {
+      guard case .disabled(let reason) = command.availability(in: transfers) else {
+        return XCTFail("\(command.identifier) should be disabled outside its pages")
       }
       XCTAssertFalse(reason.isEmpty)
     }
+    XCTAssertTrue(MyraCommand.openTorrentLink.availability(in: transfers).isEnabled)
   }
 
   func testNavigationAndWindowCommandsAreAlwaysEnabled() {

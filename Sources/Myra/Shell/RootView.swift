@@ -36,10 +36,12 @@ struct RootView: View {
   @Environment(\.modelContext) private var modelContext
   @AppStorage(MyraAccent.defaultsKey) private var accentRaw = MyraAccent.default.rawValue
   @State private var section: AppSection? = .home
+  @ObservedObject private var torrents: TorrentController
 
   init(coordinator: AppCoordinator) {
     self.coordinator = coordinator
     _player = ObservedObject(wrappedValue: coordinator.player)
+    _torrents = ObservedObject(wrappedValue: coordinator.torrents)
   }
 
   private var fullscreenPlayback: Bool { player.media != nil && player.isFullscreen }
@@ -112,6 +114,17 @@ struct RootView: View {
       .sheet(item: $coordinator.playbackChoices) { choices in
         PlaybackChoicesView(choices: choices, play: coordinator.playChosenVersion)
       }
+      // Torrent sheets live here so a link opened from any section still gets its sheet.
+      .sheet(item: $torrents.selectingJob) { identity in
+        TorrentAddSheet(controller: torrents, identity: identity)
+      }
+      .sheet(
+        isPresented: Binding(
+          get: { torrents.consentRequest != nil },
+          set: { if !$0 { torrents.declineConsent() } })
+      ) {
+        TorrentConsentSheet(controller: torrents)
+      }
       .overlay(alignment: .topTrailing) {
         if let message = coordinator.toastMessage, !fullscreenPlayback {
           ToastView(message: message)
@@ -128,6 +141,9 @@ struct RootView: View {
     .environment(\.myraAccent, accent)
     .tint(accent.color)
     .preferredColorScheme(preferredColorScheme)
+    .onChange(of: section, initial: true) { _, value in
+      coordinator.currentSection = value ?? .home
+    }
     .onReceive(NotificationCenter.default.publisher(for: MyraCommand.notification)) { note in
       guard let command = MyraCommand(notification: note) else { return }
       handle(command)
@@ -180,6 +196,7 @@ struct RootView: View {
     case .showSources: section = .sources
     case .showDownloads: section = .downloads
     case .showTransfers: section = .transfers
+    case .openTorrentLink: section = .transfers
     case .importTorrentFile:
       section = .transfers
       coordinator.torrents.chooseTorrentFile()
@@ -217,8 +234,9 @@ struct RootView: View {
       player.navigate(offset: 1)
     case .toggleFullScreen:
       NSApp.keyWindow?.toggleFullScreen(nil)
-    case .addSource, .openTorrentLink, .find:
-      // Disabled in the menu until a page handler exists; pages may observe the notification.
+    case .addSource, .find:
+      // Handled by the visible page, which observes the notification. Menu gating keeps these
+      // enabled only where such a page is showing.
       break
     }
   }

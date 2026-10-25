@@ -15,6 +15,8 @@ final class AppCoordinator: ObservableObject {
   @Published private(set) var items: [DownloadItem] = []
   @Published var currentCategory: Category?
   @Published var currentURL: URL?
+  /// The sidebar section RootView is showing. Menu availability depends on it.
+  @Published var currentSection: AppSection = .home
   @Published var entries: [DirectoryEntry] = []
   @Published var artworkURL: URL?
   @Published var selection = Set<URL>()

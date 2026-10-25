@@ -49,16 +49,6 @@ struct TorrentsView: View {
       return !links.isEmpty
     }
     .task { await controller.load() }
-    .sheet(item: $controller.selectingJob) { id in
-      TorrentAddSheet(controller: controller, identity: id)
-    }
-    .sheet(
-      isPresented: Binding(
-        get: { controller.consentRequest != nil },
-        set: { if !$0 { controller.declineConsent() } })
-    ) {
-      TorrentConsentSheet(controller: controller)
-    }
     .alert(
       "Torrent operation failed",
       isPresented: Binding(
@@ -236,7 +226,7 @@ private struct TransferRowCard: View {
 }
 
 /// Opens as soon as a link is added. Metadata keeps resolving while it is open.
-private struct TorrentAddSheet: View {
+struct TorrentAddSheet: View {
   @ObservedObject var controller: TorrentController
   let identity: TorrentIdentity
   @Environment(\.dismiss) private var dismiss
@@ -510,12 +500,14 @@ struct TorrentSettingsSection: View {
         TextField("0", value: $controller.preferences.uploadLimitKB, format: .number).frame(
           width: 100)
       }
-      Button("Save Torrent Settings") { Task { await controller.savePreferences() } }.disabled(
-        !controller.ready)
       Text(
         "Cache is separate from your library and HTTP downloads. Active and kept files are protected. Cancel a job before removing its cache."
       )
       .font(.caption).foregroundStyle(.secondary)
+    }
+    .onChange(of: controller.preferences) { _, _ in
+      guard controller.ready else { return }
+      Task { await controller.savePreferences() }
     }
     .sheet(isPresented: $showReview) {
       TorrentConsentSheet(controller: controller)

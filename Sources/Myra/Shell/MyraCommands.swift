@@ -77,6 +77,7 @@ struct MyraCommandContext: Equatable, Sendable {
   var hasActiveDownloads = false
   var hasPausedDownloads = false
   var hasCompletedDownloads = false
+  var currentSection: AppSection = .home
 }
 
 enum MyraCommandAvailability: Equatable {
@@ -93,11 +94,11 @@ extension MyraCommand {
   func availability(in context: MyraCommandContext) -> MyraCommandAvailability {
     switch self {
     case .addSource:
-      .disabled(reason: "Not wired yet: add sources from the Sources page.")
-    case .openTorrentLink:
-      .disabled(reason: "Not wired yet: paste magnet links on the Transfers page.")
+      context.currentSection == .sources
+        ? .enabled : .disabled(reason: "Open Sources to add a source.")
     case .find:
-      .disabled(reason: "Not wired yet: search is not available from the menu.")
+      [AppSection.home, .sources, .downloads].contains(context.currentSection)
+        ? .enabled : .disabled(reason: "Find is available on Home, Sources and Downloads.")
     case .togglePlayback, .skipBack, .skipForward, .previousEpisode, .nextEpisode:
       context.isPlayingMedia ? .enabled : .disabled(reason: "Open a title to control playback.")
     case .pauseAllDownloads:
@@ -123,7 +124,8 @@ struct MyraCommands: Commands {
       isPlayingMedia: player.media != nil,
       hasActiveDownloads: coordinator.batches.contains { $0.status == .active },
       hasPausedDownloads: coordinator.batches.contains { $0.status == .paused },
-      hasCompletedDownloads: coordinator.batches.contains { $0.status == .completed })
+      hasCompletedDownloads: coordinator.batches.contains { $0.status == .completed },
+      currentSection: coordinator.currentSection)
   }
 
   var body: some Commands {
