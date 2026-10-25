@@ -236,9 +236,7 @@ struct LibraryView: View {
         if SourceBrowserLayout.resolve(stored: storedLayout, hasVideos: hasVideoEntries) == .grid {
           thumbnailGrid
         } else {
-          directoryHeader
-          Divider()
-          directoryList
+          browseSection
         }
       }
     }
@@ -279,30 +277,94 @@ struct LibraryView: View {
     }
   }
 
-  private var directoryList: some View {
-    List(visibleEntries) { entry in
-      DirectoryEntryRow(
-        entry: entry,
-        isSelected: coordinator.selection.contains(entry.url),
-        toggle: { coordinator.toggleSelection(entry) },
-        copyURL: { coordinator.copyURL(entry) },
-        openInVLC: { coordinator.openInVLC(entry) },
-        pushToTV: { coordinator.pushToTV(entry) },
-        play: { coordinator.play(entry) },
-        isVLCInstalled: coordinator.isVLCInstalled,
-        open: {
-          if entry.kind == .folder {
-            Task { await coordinator.navigate(to: entry.url) }
-          } else {
-            coordinator.inspect(entry)
-          }
-        }
-      )
-      .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12))
-      .listRowSeparator(.hidden)
+  /// The Browse section from the preview: a breadcrumb above the file table.
+  private var browseSection: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      SectionHeader(title: "Browse")
+      browseCrumbs
+        .padding(.bottom, 10)
+      directoryTable
     }
-    .listStyle(.inset)
-    .scrollContentBackground(.hidden)
+    .padding(.horizontal, 26)
+    .padding(.top, 4)
+    .padding(.bottom, 30)
+  }
+
+  private var browseCrumbs: some View {
+    HStack(spacing: 6) {
+      if let category = coordinator.currentCategory, let root = category.rootURL {
+        let crumbs = breadcrumbs(root: root, current: coordinator.currentURL)
+        Text(category.name)
+          .fontWeight(crumbs.isEmpty ? .semibold : .regular)
+          .foregroundStyle(crumbs.isEmpty ? MyraColor.text : MyraColor.text2)
+        ForEach(Array(crumbs.enumerated()), id: \.offset) { index, crumb in
+          Text("›")
+          Text(crumb.name)
+            .fontWeight(index == crumbs.count - 1 ? .semibold : .regular)
+            .foregroundStyle(index == crumbs.count - 1 ? MyraColor.text : MyraColor.text2)
+        }
+      }
+    }
+    .font(.system(size: 13))
+    .lineLimit(1)
+  }
+
+  /// The file table from the preview: Name, Quality, Size, Modified and per-row actions.
+  private var directoryTable: some View {
+    ScrollView {
+      LazyVStack(spacing: 0) {
+        tableHeaderRow
+        ForEach(visibleEntries) { entry in
+          DirectoryEntryRow(
+            entry: entry,
+            isSelected: coordinator.selection.contains(entry.url),
+            toggle: { coordinator.toggleSelection(entry) },
+            copyURL: { coordinator.copyURL(entry) },
+            openInVLC: { coordinator.openInVLC(entry) },
+            pushToTV: { coordinator.pushToTV(entry) },
+            play: { coordinator.play(entry) },
+            download: {
+              // Downloads queue the selection, so this row becomes the only selected entry first.
+              coordinator.selection = [entry.url]
+              coordinator.downloadSelection()
+            },
+            isVLCInstalled: coordinator.isVLCInstalled,
+            open: {
+              if entry.kind == .folder {
+                Task { await coordinator.navigate(to: entry.url) }
+              } else {
+                coordinator.inspect(entry)
+              }
+            }
+          )
+          Rectangle().fill(MyraColor.line).frame(height: 1)
+        }
+      }
+      .background(MyraColor.content, in: RoundedRectangle(cornerRadius: MyraRadius.panel))
+      .overlay(
+        RoundedRectangle(cornerRadius: MyraRadius.panel).stroke(MyraColor.line, lineWidth: 1))
+    }
+  }
+
+  private var tableHeaderRow: some View {
+    HStack(spacing: 0) {
+      sortButton("Name", field: .name)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      Text("Quality")
+        .frame(width: 110, alignment: .leading)
+      Text("Size")
+        .frame(width: 96, alignment: .trailing)
+      sortButton("Modified", field: .date)
+        .frame(width: 150, alignment: .trailing)
+      Color.clear.frame(width: 118)
+    }
+    .font(.system(size: 12))
+    .foregroundStyle(MyraColor.text2)
+    .padding(.horizontal, 14)
+    .padding(.vertical, 8)
+    .overlay(alignment: .bottom) {
+      Rectangle().fill(MyraColor.line).frame(height: 1)
+    }
   }
 
   private var thumbnailGrid: some View {
@@ -484,25 +546,6 @@ struct LibraryView: View {
     return DirectoryEntrySorter.sorted(filtered, by: sortField, ascending: sortAscending)
   }
 
-  private var directoryHeader: some View {
-    HStack(spacing: 10) {
-      Color.clear.frame(width: 20)
-      Color.clear.frame(width: 22)
-      sortButton("File / Folder Name", field: .name)
-        .frame(maxWidth: .infinity, alignment: .leading)
-      sortButton("Date Modified", field: .date)
-        .frame(width: 175, alignment: .leading)
-      Text("Actions").frame(width: 240, alignment: .center)
-      Text("Size").frame(width: 95, alignment: .trailing)
-      Color.clear.frame(width: 14)
-    }
-    .font(.system(size: 12.5, weight: .semibold))
-    .foregroundStyle(.secondary)
-    .padding(.horizontal, 12)
-    .frame(height: 34)
-    .background(Color(nsColor: .controlBackgroundColor))
-  }
-
   private func sortButton(_ title: String, field: DirectorySortField) -> some View {
     Button {
       if sortField == field {
@@ -547,77 +590,96 @@ private struct DirectoryEntryRow: View {
   let openInVLC: () -> Void
   let pushToTV: () -> Void
   let play: () -> Void
+  let download: () -> Void
   let isVLCInstalled: Bool
   let open: () -> Void
+  @State private var isHovering = false
 
   var body: some View {
-    HStack(spacing: 10) {
-      Button(action: toggle) {
-        Image(systemName: isSelected ? "checkmark.square.fill" : "square")
-          .foregroundStyle(isSelected ? accent.color : .secondary)
+    HStack(spacing: 0) {
+      HStack(spacing: 9) {
+        Button(action: toggle) {
+          Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+            .foregroundStyle(isSelected ? accent.color : MyraColor.text3)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isSelected ? "Deselect \(entry.name)" : "Select \(entry.name)")
+        Image(systemName: entry.kind == .folder ? "folder.fill" : "film")
+          .font(.system(size: 16))
+          .foregroundStyle(accent.color)
+          .frame(width: 18)
+          .accessibilityHidden(true)
+        Button(action: open) {
+          Text(entry.name)
+            .font(.system(size: 13, weight: .medium))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(entry.name)
       }
-      .buttonStyle(.plain)
-      Image(systemName: entry.kind == .folder ? "folder.fill" : "doc.fill")
-        .foregroundStyle(entry.kind == .folder ? accent.color : .secondary)
-        .frame(width: 22)
-      Button(action: open) {
-        Text(entry.name)
-          .lineLimit(1)
-          .truncationMode(.tail)
-          .frame(maxWidth: .infinity, alignment: .leading)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      Group {
+        if entry.kind == .file, let resolution = SourceFileFormat.resolution(for: entry.name) {
+          LibraryTag(text: resolution)
+        }
       }
-      .buttonStyle(.plain)
-      .help(entry.name)
-      if let modifiedAt = entry.modifiedAt {
-        Text(modifiedAt, format: .dateTime.year().month().day().hour().minute())
-          .lineLimit(1)
-          .foregroundStyle(.secondary)
-          .frame(width: 175, alignment: .leading)
-      } else {
-        Text("—").foregroundStyle(.tertiary).frame(width: 175, alignment: .leading)
+      .frame(width: 110, alignment: .leading)
+      Text(
+        entry.size.map { Foundation.ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
+          ?? "—"
+      )
+        .lineLimit(1)
+        .foregroundStyle(MyraColor.text2)
+        .frame(width: 96, alignment: .trailing)
+      Group {
+        if let modifiedAt = entry.modifiedAt {
+          Text(modifiedAt, format: .dateTime.day().month(.abbreviated).year())
+        } else {
+          Text("—")
+        }
       }
+      .lineLimit(1)
+      .foregroundStyle(MyraColor.text2)
+      .frame(width: 150, alignment: .trailing)
       Group {
         if entry.kind == .file {
-          HStack(spacing: 8) {
-            Button(action: copyURL) {
-              Label("Copy", systemImage: "doc.on.doc")
+          HStack(spacing: 4) {
+            IconButton(systemName: "play.fill", help: "Play", action: play)
+            IconButton(systemName: "arrow.down.to.line", help: "Download", action: download)
+            Menu {
+              Button("Copy", action: copyURL)
+                .help("Copy the file URL")
+              Button("VLC", action: openInVLC).disabled(!isVLCInstalled)
+              Button("TV", action: pushToTV)
+            } label: {
+              Image(systemName: "ellipsis")
+                .font(.system(size: 14, weight: .medium))
+                .frame(width: 28, height: 28)
+                .foregroundStyle(MyraColor.text2)
             }
-            .help("Copy the file URL")
-            Button(action: openInVLC) {
-              Label("VLC", systemImage: "play.rectangle.fill")
-            }
-            .disabled(!isVLCInstalled)
-            .help(
-              isVLCInstalled
-                ? "Stream this file in VLC" : "VLC is not installed in Applications")
-            Button(action: pushToTV) {
-              Label("TV", systemImage: "tv")
-            }
-            .help("Send this URL with the Play on Sam Online Shortcut")
-            Button(action: play) { Label("Play", systemImage: "play.fill") }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("More actions")
+            .accessibilityLabel("More actions for \(entry.name)")
           }
-          .labelStyle(.titleAndIcon)
-          .buttonStyle(.borderless)
-          .controlSize(.small)
         } else {
-          Color.clear
+          Image(systemName: "chevron.right")
+            .font(.system(size: 11))
+            .foregroundStyle(MyraColor.text3)
+            .accessibilityHidden(true)
         }
       }
-      .frame(width: 240)
-      Text(entry.size.map(ByteCountFormatter.string) ?? "—")
-        .lineLimit(1)
-        .foregroundStyle(.secondary).frame(width: 95, alignment: .trailing)
-      Group {
-        if entry.kind == .folder {
-          Image(systemName: "chevron.right").foregroundStyle(.tertiary)
-        } else {
-          Color.clear
-        }
-      }
-      .frame(width: 14)
+      .frame(width: 118, alignment: .trailing)
     }
+    .padding(.horizontal, 14)
+    .padding(.vertical, 9)
+    .background(isHovering ? MyraColor.fill : .clear)
     .contentShape(Rectangle())
-    .frame(height: 44)
+    .onHover { isHovering = $0 }
   }
 }
 

@@ -15,16 +15,17 @@ struct TorrentsView: View {
   var body: some View {
     VStack(spacing: 0) {
       HStack {
-        Text("Torrents").font(.title2.weight(.semibold))
-        Spacer()
-        Picker("View", selection: $tab) {
-          Text("Transfers").tag(0)
-          Text("Discover").tag(1)
-        }
-        .pickerStyle(.segmented).frame(width: 240)
-      }.padding(.horizontal, 24).padding(.vertical, 16)
-      addLinkBar
-      Divider()
+        SegmentedControl(
+          options: [
+            SegmentOption(value: 0, title: "Transfers"),
+            SegmentOption(value: 1, title: "Discover"),
+          ],
+          selection: $tab)
+        Spacer(minLength: 0)
+      }
+      .padding(.horizontal, 26)
+      .padding(.top, 8)
+      .padding(.bottom, 14)
       if tab == 0 {
         transfersPage
       } else {
@@ -43,6 +44,7 @@ struct TorrentsView: View {
         }.padding(12).background(.thinMaterial)
       }
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .dropDestination(for: URL.self) { urls, _ in
       let links = urls.filter { TorrentLinkRouter.route($0) != .ignored }
       links.forEach { controller.handleOpenURL($0) }
@@ -75,21 +77,53 @@ struct TorrentsView: View {
     }
   }
 
+  /// The dashed add bar (`.addbar`): a link field with the import action, a Continue button, then the privacy hint.
   private var addLinkBar: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      HStack {
-        TextField("Paste a magnet link or drop a .torrent file", text: $link)
-          .textFieldStyle(.roundedBorder)
-          .onSubmit(addLink)
-        Button("Add", action: addLink).disabled(
-          !controller.ready || link.trimmingCharacters(in: .whitespaces).isEmpty)
-        Button("Import .torrent…") { controller.chooseTorrentFile() }.disabled(!controller.ready)
+    VStack(alignment: .leading, spacing: 0) {
+      HStack(spacing: 10) {
+        HStack(spacing: 8) {
+          Image(systemName: "link")
+            .font(.system(size: 14))
+            .foregroundStyle(MyraColor.text3)
+            .accessibilityHidden(true)
+          TextField("Paste a magnet link or drop a .torrent file", text: $link)
+            .textFieldStyle(.plain)
+            .onSubmit(addLink)
+          Button {
+            controller.chooseTorrentFile()
+          } label: {
+            Image(systemName: "doc.badge.plus")
+              .font(.system(size: 14))
+              .foregroundStyle(MyraColor.text2)
+          }
+          .buttonStyle(.plain)
+          .disabled(!controller.ready)
+          .help("Import a .torrent file")
+          .accessibilityLabel("Import .torrent…")
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(MyraColor.content, in: RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(MyraColor.line, lineWidth: 1))
+        Button("Continue", action: addLink)
+          .buttonStyle(MyraButtonStyle(prominent: true))
+          .disabled(!controller.ready || link.trimmingCharacters(in: .whitespaces).isEmpty)
+          .accessibilityLabel("Add")
       }
+      .padding(14)
+      .background(MyraColor.fill, in: RoundedRectangle(cornerRadius: 14))
+      .overlay(
+        RoundedRectangle(cornerRadius: 14)
+          .strokeBorder(MyraColor.lineStrong, style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
       Text(
         "Torrent peers and trackers can see your IP address. This is not anonymous. Only play content you have permission to use. Networking starts only when you add a link."
       )
-      .font(.caption).foregroundStyle(.secondary)
-    }.padding(.horizontal, 24).padding(.vertical, 12)
+      .font(.system(size: 12))
+      .foregroundStyle(MyraColor.text3)
+      .padding(.top, 6)
+      .padding(.horizontal, 2)
+    }
   }
 
   private func addLink() {
@@ -103,125 +137,209 @@ struct TorrentsView: View {
 
   private var transfersPage: some View {
     ScrollView {
-      VStack(alignment: .leading, spacing: 16) {
+      VStack(alignment: .leading, spacing: 0) {
+        addLinkBar
         if let streaming = controller.streamingRow {
+          SectionHeader(title: "Now Streaming")
           NowStreamingCard(controller: controller, row: streaming)
         }
         if controller.transferRows.isEmpty {
           ContentUnavailableView(
             "No torrents yet", systemImage: "network",
             description: Text("Paste a magnet link, drop a .torrent file, or discover an open video."))
+            .frame(maxWidth: .infinity, minHeight: 220)
         } else {
           let active = controller.transferRows.filter { !$0.isStreaming }
           if !active.isEmpty {
-            Text("Active").font(.headline)
-            ForEach(active) { row in
-              TransferRowCard(
-                controller: controller, row: row,
-                remove: { removing = try? TorrentIdentity(rawValue: row.id) })
-            }
+            SectionHeader(title: "Active", count: active.count)
+            RowCard(rows: active.map(activeRow))
           }
         }
-      }.padding(24)
+      }
+      .padding(.horizontal, 26)
+      .padding(.top, 4)
+      .padding(.bottom, 30)
     }
+  }
+
+  /// One Active row: the transfer's state, byte progress, speed and peers, with its controls.
+  private func activeRow(_ row: TorrentTransferRow) -> RowCardItem {
+    let job = controller.jobs.first { $0.id == row.id }
+    let identity = try? TorrentIdentity(rawValue: row.id)
+    let kept = job?.keepDownload == true
+    let fraction = row.bytesTotal > 0 ? min(1, Double(row.bytesDone) / Double(row.bytesTotal)) : 0
+
+    var actions: [RowCardAction] = []
+    if job?.selectedFileIndex == nil {
+      actions.append(
+        RowCardAction(id: "choose", title: "Choose Video…", style: .button) {
+          controller.selectingJob = identity
+        })
+    }
+    actions.append(
+      RowCardAction(
+        id: "pause", title: row.isPaused ? "Resume" : "Pause",
+        systemImage: row.isPaused ? "play.fill" : "pause.fill"
+      ) {
+        guard let identity else { return }
+        if row.isPaused {
+          Task { await controller.resume(identity) }
+        } else {
+          controller.pause(identity)
+        }
+      })
+    actions.append(
+      RowCardAction(id: "cancel", title: "Cancel", systemImage: "xmark") {
+        if let identity { controller.cancel(identity) }
+      })
+    // A kept torrent cannot be removed until Keep Download is turned off, so its remove control is withheld.
+    if !kept {
+      actions.append(
+        RowCardAction(id: "remove", title: "Remove…", systemImage: "trash") {
+          removing = identity
+        })
+    }
+
+    let status: StatusPill
+    if row.isComplete {
+      status = StatusPill(text: "Complete", style: .ok)
+    } else if row.isPaused {
+      status = StatusPill(text: "Paused", style: .warn)
+    } else {
+      status = StatusPill(text: row.state.isEmpty ? "Finding peers" : row.state, style: .live)
+    }
+
+    return RowCardItem(
+      id: row.id, title: row.name,
+      thumbnailSymbol: row.isComplete ? "checkmark" : "arrow.down",
+      thumbnailColors: LibraryPalette.gradient(for: row.name),
+      tags: kept ? ["Kept"] : [],
+      meta: [
+        "\(byteText(row.bytesDone)) of \(byteText(row.bytesTotal))",
+        "↓ \(byteText(row.downloadSpeed))/s",
+        "\(row.peers) peers",
+      ],
+      status: status, progress: fraction, actions: actions)
   }
 }
 
+/// The Now Streaming panel (`.streaming`): a 16:9 still, the title with a live pill, the buffer bar and the stream stats.
 private struct NowStreamingCard: View {
   @ObservedObject var controller: TorrentController
   let row: TorrentTransferRow
+  @Environment(\.myraAccent) private var accent
   private var transfer: TorrentTransfer { controller.transfers[row.id] ?? TorrentTransfer() }
   private var identity: TorrentIdentity? { try? TorrentIdentity(rawValue: row.id) }
   private var kept: Bool { controller.jobs.first { $0.id == row.id }?.keepDownload == true }
+  private var verified: Double { min(1, max(0, transfer.streamPercent / 100)) }
 
   var body: some View {
-    HStack(alignment: .top, spacing: 16) {
-      ZStack {
-        RoundedRectangle(cornerRadius: 10).fill(.quaternary)
-        Image(systemName: "play.rectangle.fill").font(.largeTitle).foregroundStyle(.secondary)
-      }
-      .frame(width: 128, height: 72)
-      .accessibilityHidden(true)
-      VStack(alignment: .leading, spacing: 8) {
-        Text("Now Streaming").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-        Text(row.name).font(.headline).lineLimit(2).help(row.name)
-        ProgressView(value: min(1, max(0, transfer.streamPercent / 100)))
-        Text("\(Int(transfer.streamPercent.rounded()))% verified")
-          .font(.caption).foregroundStyle(.secondary)
-        HStack(spacing: 14) {
-          Text(row.bufferedSeconds < 5
-            ? "Buffering · \(Int(row.bufferedSeconds.rounded())) s ahead"
-            : "\(Int(row.bufferedSeconds.rounded())) s buffered ahead")
-          Text("↓ \(byteText(row.downloadSpeed))/s")
-          Text("\(row.peers) peers")
-        }.font(.caption).foregroundStyle(.secondary)
-        HStack {
-          Button("Return to Player") { TorrentPlayerWindow.bringToFront() }
-          Button(kept ? "Kept" : "Keep a Copy") {
+    HStack(alignment: .center, spacing: 18) {
+      still
+        .frame(width: 220)
+      VStack(alignment: .leading, spacing: 0) {
+        HStack(spacing: 8) {
+          Text(row.name)
+            .font(.system(size: 15, weight: .bold))
+            .lineLimit(2)
+            .help(row.name)
+          StatusPill(
+            text: row.bufferedSeconds < 5 ? "Buffering" : "Playing",
+            style: .live)
+        }
+        HStack(spacing: 18) {
+          kv("State", row.state.isEmpty ? "Starting" : row.state)
+          kv("Verified", "\(Int(transfer.streamPercent.rounded()))%")
+        }
+        .padding(.top, 4)
+        .padding(.bottom, 10)
+        bufferBar
+        HStack(spacing: 18) {
+          kv("Buffered ahead", clock(row.bufferedSeconds))
+          kv("↓", "\(byteText(row.downloadSpeed))/s")
+          kv("Peers", "\(row.peers)")
+          kv("Cache", byteText(transfer.downloaded))
+        }
+        .padding(.top, 8)
+        HStack(spacing: 8) {
+          Button {
+            TorrentPlayerWindow.bringToFront()
+          } label: {
+            Label("Return to Player", systemImage: "play.fill")
+          }
+          .buttonStyle(MyraButtonStyle(prominent: true))
+          Button {
             guard let identity else { return }
             Task { await controller.setKeep(identity, keep: true) }
-          }.disabled(kept || identity == nil)
-          Spacer()
-        }
-      }
-    }
-    .padding(16)
-    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-  }
-}
-
-private struct TransferRowCard: View {
-  @ObservedObject var controller: TorrentController
-  let row: TorrentTransferRow
-  var remove: () -> Void
-  private var identity: TorrentIdentity? { try? TorrentIdentity(rawValue: row.id) }
-  private var job: TorrentJob? { controller.jobs.first { $0.id == row.id } }
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack {
-        Image(systemName: row.isComplete ? "checkmark.circle.fill" : "arrow.down.circle")
-          .font(.title2).foregroundStyle(.secondary).accessibilityHidden(true)
-        VStack(alignment: .leading) {
-          Text(row.name).font(.headline).lineLimit(1).help(row.name)
-          Text(row.state).font(.caption).foregroundStyle(.secondary)
-        }
-        Spacer()
-        if job?.keepDownload == true {
-          Label("Kept", systemImage: "pin.fill").font(.caption).foregroundStyle(.secondary)
-        }
-      }
-      ProgressView(
-        value: row.bytesTotal > 0
-          ? min(1, Double(row.bytesDone) / Double(row.bytesTotal)) : 0)
-      HStack {
-        Text(byteText(row.bytesDone) + " / " + byteText(row.bytesTotal))
-        Text("↓ \(byteText(row.downloadSpeed))/s")
-        Text("\(row.peers) peers")
-        Spacer()
-      }.font(.caption).foregroundStyle(.secondary)
-      HStack {
-        if job?.selectedFileIndex == nil {
-          Button("Choose Video…") { controller.selectingJob = identity }
-        }
-        Button(row.isPaused ? "Resume" : "Pause") {
-          guard let identity else { return }
-          if row.isPaused {
-            Task { await controller.resume(identity) }
-          } else {
-            controller.pause(identity)
+          } label: {
+            Label(kept ? "Kept" : "Keep a Copy", systemImage: "arrow.down.to.line")
           }
+          .buttonStyle(MyraButtonStyle())
+          .disabled(kept || identity == nil)
+          Text(
+            kept
+              ? "Kept after watching."
+              : "Removed from the cache after watching unless you keep a copy."
+          )
+          .font(.system(size: 12))
+          .foregroundStyle(MyraColor.text2)
+          .lineLimit(2)
         }
-        Button("Cancel") {
-          if let identity { controller.cancel(identity) }
-        }
-        Spacer()
-        Button("Remove…", role: .destructive, action: remove)
-          .disabled(job?.keepDownload == true)
+        .padding(.top, 12)
       }
+      .frame(maxWidth: .infinity, alignment: .leading)
     }
     .padding(14)
-    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+    .background(MyraColor.content, in: RoundedRectangle(cornerRadius: MyraRadius.panel))
+    .overlay(
+      RoundedRectangle(cornerRadius: MyraRadius.panel).stroke(MyraColor.line, lineWidth: 1))
+  }
+
+  private var still: some View {
+    ZStack(alignment: .bottomLeading) {
+      RoundedRectangle(cornerRadius: 10)
+        .fill(
+          LinearGradient(
+            colors: LibraryPalette.gradient(for: row.name), startPoint: .topLeading,
+            endPoint: .bottomTrailing))
+      Text(row.name)
+        .font(.system(size: 13, weight: .bold))
+        .foregroundStyle(.white)
+        .lineLimit(1)
+        .padding(10)
+    }
+    .aspectRatio(16.0 / 9.0, contentMode: .fit)
+    .accessibilityHidden(true)
+  }
+
+  /// The buffer bar (`.buffer`). The verified part is drawn as the buffered-ahead segment.
+  private var bufferBar: some View {
+    GeometryReader { geometry in
+      ZStack(alignment: .leading) {
+        Capsule().fill(MyraColor.fill2)
+        Capsule()
+          .fill(accent.color.opacity(0.4))
+          .frame(width: geometry.size.width * verified)
+      }
+    }
+    .frame(height: 6)
+    .clipShape(Capsule())
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("Stream verified")
+    .accessibilityValue("\(Int((verified * 100).rounded())) percent")
+  }
+
+  private func kv(_ label: String, _ value: String) -> some View {
+    (Text(label + " ").foregroundStyle(MyraColor.text2)
+      + Text(value).fontWeight(.semibold).foregroundStyle(MyraColor.text))
+      .font(.system(size: 12))
+      .monospacedDigit()
+      .lineLimit(1)
+  }
+
+  private func clock(_ seconds: Double) -> String {
+    let total = max(0, Int(seconds.rounded()))
+    return String(format: "%d:%02d", total / 60, total % 60)
   }
 }
 
@@ -369,36 +487,54 @@ struct TorrentConsentSheet: View {
   }
 }
 
+/// The Discover segment: a search field with provider chips above the result rows.
 private struct TorrentDiscoveryView: View {
   @ObservedObject var controller: TorrentController
   @ObservedObject var model: TorrentDiscoveryModel
+  @FocusState private var searchFocused: Bool
+
+  private var providerItems: [ChipItem<String>] {
+    var items = [
+      ChipItem(id: "open", title: "Open Movies"),
+      ChipItem(id: "archive", title: "Internet Archive"),
+    ]
+    if !model.sources.isEmpty { items.append(ChipItem(id: "all", title: "All Sources")) }
+    items += model.sources.map { ChipItem(id: $0.id.uuidString, title: $0.name) }
+    return items
+  }
+
   var body: some View {
-    VStack(spacing: 12) {
-      HStack {
-        Picker("Source", selection: $model.selectedProvider) {
-          Text("Open Movies").tag("open")
-          Text("Internet Archive").tag("archive")
-          if !model.sources.isEmpty { Text("All Online Sources").tag("all") }
-          ForEach(model.sources) { Text($0.name).tag($0.id.uuidString) }
-        }.frame(width: 230).onChange(of: model.selectedProvider) { _, _ in
+    VStack(alignment: .leading, spacing: 0) {
+      VStack(alignment: .leading, spacing: 10) {
+        HStack(spacing: 8) {
+          SearchField(text: $model.query, prompt: "Search titles", isFocused: $searchFocused)
+            .onSubmit { model.search() }
+          Button("Search") { model.search() }
+            .buttonStyle(MyraButtonStyle())
+          if model.searching {
+            ProgressView().controlSize(.small)
+            Button("Cancel") { model.cancel() }
+              .buttonStyle(MyraButtonStyle())
+          }
+        }
+        ChipBar(items: providerItems, isOn: { $0 == model.selectedProvider }) { id in
+          guard id != model.selectedProvider else { return }
+          model.selectedProvider = id
           model.cancel()
           model.search()
         }
-        TextField("Search titles — Return to search online", text: $model.query).textFieldStyle(
-          .roundedBorder
-        )
-        .onSubmit { model.search() }
-        Button("Search") { model.search() }
-        if model.searching {
-          ProgressView().controlSize(.small)
-          Button("Cancel") { model.cancel() }
-        }
-      }.padding(.horizontal, 24).padding(.top, 16)
+      }
+      .padding(.horizontal, 26)
+      .padding(.top, 4)
+      .padding(.bottom, 14)
       if !model.failures.isEmpty {
         VStack(alignment: .leading) {
-          ForEach(model.failures, id: \.self) { Text($0).font(.caption).foregroundStyle(.orange) }
+          ForEach(model.failures, id: \.self) {
+            Text($0).font(.system(size: 12)).foregroundStyle(.orange)
+          }
         }
-        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 26)
       }
       if controller.importing {
         HStack {
@@ -406,47 +542,41 @@ private struct TorrentDiscoveryView: View {
           Text("Importing torrent metadata…")
           Button("Cancel") { controller.cancelImport() }
         }
+        .font(.system(size: 12))
+        .padding(.horizontal, 26)
       }
       ScrollView {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 16)], spacing: 16) {
-          ForEach(model.results) { item in
-            VStack(alignment: .leading, spacing: 10) {
-              ZStack {
-                Rectangle().fill(.quaternary)
-                Image(
-                  systemName: item.archiveID == nil ? "film.stack.fill" : "building.columns.fill"
-                )
-                .font(.system(size: 38)).foregroundStyle(.secondary)
-              }.frame(height: 115).clipShape(RoundedRectangle(cornerRadius: 8))
-              Text(item.title).font(.headline).lineLimit(2).frame(height: 40, alignment: .top).help(
-                item.title)
-              Text(item.provider).font(.caption).foregroundStyle(.secondary)
-              Text(item.license).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
-              if let seeders = item.seeders { Text("\(seeders) seeders").font(.caption) }
-              HStack {
-                Button("Play or Download…") { controller.importDiscovery(item) }.disabled(
-                  controller.importing || !controller.ready)
-                Spacer()
-                Link(destination: item.sourceURL) { Image(systemName: "arrow.up.right.square") }
-                  .help("View source")
-              }
-            }.padding(14).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        VStack(alignment: .leading, spacing: 0) {
+          if !model.results.isEmpty {
+            RowCard(rows: model.results.map(resultRow))
           }
-        }.padding(24)
-        if model.results.isEmpty && !model.searching {
-          Text("No matching torrents. Try another title or source.").foregroundStyle(.secondary)
-            .padding()
+          if model.results.isEmpty && !model.searching {
+            Text("No matching torrents. Try another title or source.")
+              .font(.system(size: 13))
+              .foregroundStyle(MyraColor.text2)
+              .frame(maxWidth: .infinity)
+              .padding(.vertical, 40)
+          }
+          if model.hasMore {
+            Button("Load More") { model.search(more: true) }
+              .buttonStyle(MyraButtonStyle())
+              .disabled(model.searching)
+              .padding(.top, 12)
+              .frame(maxWidth: .infinity)
+          }
+          Text(
+            "Archive license declarations are supplied by uploaders. Verify permission at the source. Sources are searched only when requested."
+          )
+          .font(.system(size: 12))
+          .foregroundStyle(MyraColor.text3)
+          .padding(.top, 12)
         }
-        if model.hasMore {
-          Button("Load More") { model.search(more: true) }.disabled(model.searching).padding(
-            .bottom, 24)
-        }
+        .padding(.horizontal, 26)
+        .padding(.top, 4)
+        .padding(.bottom, 30)
       }
-      Text(
-        "Archive license declarations are supplied by uploaders. Verify permission at the source. Sources are searched only when requested."
-      )
-      .font(.caption2).foregroundStyle(.secondary).padding(.horizontal, 24).padding(.bottom, 10)
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .alert(
       "Discovery",
       isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })
@@ -455,6 +585,34 @@ private struct TorrentDiscoveryView: View {
     } message: {
       Text(model.error ?? "")
     }
+  }
+
+  /// One discovery result: its provider, size and seeders, with Play and Download both opening the add sheet.
+  private func resultRow(_ item: TorrentDiscoveryItem) -> RowCardItem {
+    var meta = [item.provider]
+    if let size = item.size { meta.append(byteText(size)) }
+    if let seeders = item.seeders { meta.append("\(seeders) seeders") }
+    let busy = controller.importing || !controller.ready
+    return RowCardItem(
+      id: item.id, title: item.title,
+      thumbnailSymbol: item.archiveID == nil ? "film.stack" : "building.columns",
+      thumbnailColors: LibraryPalette.gradient(for: item.title),
+      meta: meta,
+      actions: [
+        RowCardAction(id: "play", title: "Play", systemImage: "play.fill", style: .button) {
+          guard !busy else { return }
+          controller.importDiscovery(item)
+        },
+        RowCardAction(
+          id: "download", title: "Download", systemImage: "arrow.down.to.line", style: .button
+        ) {
+          guard !busy else { return }
+          controller.importDiscovery(item)
+        },
+        RowCardAction(id: "source", title: "View source", systemImage: "arrow.up.right.square") {
+          NSWorkspace.shared.open(item.sourceURL)
+        },
+      ])
   }
 }
 

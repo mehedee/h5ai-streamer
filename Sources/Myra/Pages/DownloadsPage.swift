@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Byte and time text for download rows. Matches the formatting used by the download drawer.
+/// Byte, time and storage text for download rows. Matches the formatting used by the download drawer.
 enum DownloadFormat {
   static func bytes(_ value: Int64) -> String {
     Foundation.ByteCountFormatter.string(fromByteCount: value, countStyle: .file)
@@ -12,6 +12,12 @@ enum DownloadFormat {
       return String(format: "%d:%02d:%02d", value / 3600, (value % 3600) / 60, value % 60)
     }
     return String(format: "%d:%02d", value / 60, value % 60)
+  }
+
+  /// The preview's wording for remaining time: "About 1 min left" or "Less than a minute left".
+  static func remaining(_ seconds: TimeInterval) -> String {
+    if seconds < 60 { return "Less than a minute left" }
+    return "About \(Int((seconds / 60).rounded())) min left"
   }
 }
 
@@ -67,10 +73,42 @@ enum DownloadRowAction: String, CaseIterable, Sendable {
   }
 }
 
+/// Stable gradient tiles for row thumbnails, the same colours as the preview's sample rows.
+enum LibraryPalette {
+  static let gradients: [[Color]] = [
+    [libraryHex(0x4B6CB7), libraryHex(0x182848)],
+    [libraryHex(0xF7971E), libraryHex(0xA8325E)],
+    [libraryHex(0x11998E), libraryHex(0x38EF7D)],
+    [libraryHex(0x8E2DE2), libraryHex(0x4A00E0)],
+  ]
+
+  /// The same key always gets the same colours, across launches.
+  static func gradient(for key: String) -> [Color] {
+    let sum = key.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
+    return gradients[sum % gradients.count]
+  }
+}
+
+private func libraryHex(_ value: UInt32) -> Color {
+  Color(
+    red: Double((value >> 16) & 0xFF) / 255,
+    green: Double((value >> 8) & 0xFF) / 255,
+    blue: Double(value & 0xFF) / 255)
+}
+
 enum DownloadsModel {
-  /// Every aria2 batch that is not finished. Completed batches live in the Library section.
+  /// Every aria2 batch that is not finished. Completed batches live in the Completed Today and Library sections.
   static func inProgress(_ batches: [DownloadBatch]) -> [DownloadBatch] {
     batches.filter { $0.status != .completed }
+  }
+
+  /// Completed batches that finished on the same calendar day as `now`.
+  static func completedToday(
+    _ batches: [DownloadBatch], now: Date = .now, calendar: Calendar = .current
+  ) -> [DownloadBatch] {
+    batches.filter { batch in
+      batch.status == .completed && calendar.isDate(batch.completedAt ?? batch.createdAt, inSameDayAs: now)
+    }
   }
 
   /// The controls a row offers for a status. Delete is offered for every status except preparing.
@@ -93,9 +131,23 @@ enum DownloadsModel {
     guard total > 0 else { return "Nothing is downloading" }
     return "\(total) in progress • \(active) active • \(paused) paused"
   }
+
+  /// The header text beside the segmented control: free space and the save folder.
+  static func storageSummary(folder: String) -> String {
+    let location = (folder as NSString).abbreviatingWithTildeInPath
+    let url = URL(fileURLWithPath: folder, isDirectory: true)
+    guard
+      let free = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        .volumeAvailableCapacityForImportantUsage
+    else {
+      return "Saving to \(location)"
+    }
+    return
+      "\(Foundation.ByteCountFormatter.string(fromByteCount: free, countStyle: .file)) free · Saving to \(location)"
+  }
 }
 
-/// Aria2 downloads still in progress, with pause, cancel and retry, plus the torrent seam.
+/// The In Progress section: active and failed transfers, then the batches that finished today.
 struct DownloadsInProgressView: View {
   @ObservedObject var coordinator: AppCoordinator
   @ObservedObject var torrents: TorrentController
@@ -105,53 +157,26 @@ struct DownloadsInProgressView: View {
   private var batches: [DownloadBatch] { DownloadsModel.inProgress(coordinator.batches) }
   /// Torrent transfers that are not finished. Completed torrents live in the Library section.
   private var torrentRows: [TorrentTransferRow] { torrents.transferRows.filter { !$0.isComplete } }
+  private var completedToday: [DownloadBatch] { DownloadsModel.completedToday(coordinator.batches) }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      HStack(spacing: 8) {
-        Text(DownloadsModel.summary(batches, torrentRows: torrentRows))
-          .font(.callout).foregroundStyle(.secondary)
-        Spacer()
-        Button("Pause All") {
-          for batch in coordinator.batches where batch.status == .active {
-            Task { await coordinator.pause(batch) }
-          }
-        }
-        .disabled(!coordinator.batches.contains { $0.status == .active })
-        Button("Resume All") {
-          for batch in coordinator.batches where batch.status == .paused {
-            Task { await coordinator.resume(batch) }
-          }
-        }
-        .disabled(!coordinator.batches.contains { $0.status == .paused })
-        Button("Clear Completed") { coordinator.clearCompleted() }
-          .disabled(!coordinator.batches.contains { $0.status == .completed })
-      }
+    VStack(alignment: .leading, spacing: 0) {
       if batches.isEmpty && torrentRows.isEmpty {
-        ContentUnavailableView(
-          "Nothing is downloading", systemImage: "arrow.down.circle",
-          description: Text("Downloads you start from Sources will appear here."))
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-      } else {
-        List {
-          ForEach(batches) { batch in
-            DownloadProgressRow(
-              batch: batch, itemCount: coordinator.itemsForBatch(batch).count,
-              perform: { perform($0, on: batch) })
-          }
-          ForEach(torrentRows) { row in
-            VStack(alignment: .leading, spacing: 6) {
-              HStack {
-                Text(row.name).font(.headline).lineLimit(1)
-                if row.isStreaming { Text("Streaming").font(.caption).foregroundStyle(.tint) }
-              }
-              ProgressView(value: row.bytesTotal > 0 ? Double(row.bytesDone) / Double(row.bytesTotal) : 0)
-              Text(row.state).font(.caption).foregroundStyle(.secondary)
-            }
-            .padding(.vertical, 8)
-          }
+        if completedToday.isEmpty {
+          ContentUnavailableView(
+            "Nothing is downloading", systemImage: "arrow.down.circle",
+            description: Text("Downloads you start from Sources will appear here.")
+          )
+          .frame(maxWidth: .infinity, minHeight: 240)
         }
-        .scrollContentBackground(.hidden)
+      } else {
+        RowCard(rows: progressRows)
+      }
+      if !completedToday.isEmpty {
+        SectionHeader(
+          title: "Completed Today", count: completedToday.count, actionTitle: "Clear",
+          action: { coordinator.clearCompleted() })
+        RowCard(rows: completedRows)
       }
     }
     .confirmationDialog(
@@ -179,6 +204,101 @@ struct DownloadsInProgressView: View {
     }
   }
 
+  private var progressRows: [RowCardItem] {
+    batches.map(batchRow) + torrentRows.map(torrentRow)
+  }
+
+  private var completedRows: [RowCardItem] {
+    completedToday.map { batch in
+      var actions: [RowCardAction] = []
+      if let url = playableURL(for: batch) {
+        actions.append(
+          RowCardAction(id: "play", title: "Play", systemImage: "play.fill", style: .button) {
+            coordinator.playLocal(url: url)
+          })
+      }
+      actions.append(
+        RowCardAction(id: "reveal", title: "Show in Finder", systemImage: "folder") {
+          coordinator.reveal(batch)
+        })
+      return RowCardItem(
+        id: batch.id.uuidString, title: batch.title,
+        thumbnailColors: LibraryPalette.gradient(for: batch.title), tags: ["HTTP"],
+        meta: [DownloadFormat.bytes(batch.totalBytes)],
+        status: playableURL(for: batch) == nil
+          ? StatusPill(text: "Completed", style: .ok) : StatusPill(text: "In Library", style: .ok),
+        actions: actions)
+    }
+  }
+
+  private func batchRow(_ batch: DownloadBatch) -> RowCardItem {
+    let failed = batch.status == .failed
+    var meta: [String] = []
+    if failed {
+      meta = [batch.errorMessage ?? "Source unreachable"]
+    } else {
+      meta.append(
+        "\(DownloadFormat.bytes(batch.completedBytes)) of \(DownloadFormat.bytes(batch.totalBytes))")
+      if batch.downloadSpeed > 0 {
+        meta.append("\(DownloadFormat.bytes(batch.downloadSpeed))/s")
+      }
+      if let eta = batch.estimatedSecondsRemaining {
+        meta.append(DownloadFormat.remaining(eta))
+      }
+    }
+    return RowCardItem(
+      id: batch.id.uuidString, title: batch.title,
+      thumbnailSymbol: failed ? "exclamationmark.triangle" : "film",
+      thumbnailColors: failed ? [] : LibraryPalette.gradient(for: batch.title),
+      thumbnailTint: .red, tags: ["HTTP"], meta: meta,
+      status: statusPill(for: batch.status),
+      progress: failed ? nil : batch.progress,
+      actions: DownloadsModel.actions(for: batch.status).map { action in
+        RowCardAction(
+          id: action.rawValue, title: action.title, systemImage: action.symbol,
+          style: action == .retry ? .button : .icon
+        ) {
+          perform(action, on: batch)
+        }
+      })
+  }
+
+  private func torrentRow(_ row: TorrentTransferRow) -> RowCardItem {
+    let fraction = row.bytesTotal > 0 ? Double(row.bytesDone) / Double(row.bytesTotal) : 0
+    var meta = ["\(DownloadFormat.bytes(row.bytesDone)) of \(DownloadFormat.bytes(row.bytesTotal))"]
+    meta.append("↓ \(DownloadFormat.bytes(row.downloadSpeed))/s")
+    meta.append("\(row.peers) peers")
+    return RowCardItem(
+      id: row.id, title: row.name, thumbnailSymbol: "film",
+      thumbnailColors: LibraryPalette.gradient(for: row.name), tags: ["Torrent"], meta: meta,
+      status: row.isStreaming
+        ? StatusPill(text: "Streaming", style: .live) : StatusPill(text: row.state, style: .neutral),
+      progress: fraction)
+  }
+
+  private func statusPill(for status: TransferStatus) -> StatusPill {
+    switch status {
+    case .active: StatusPill(text: "Downloading", style: .live)
+    case .queued: StatusPill(text: "Queued", style: .neutral)
+    case .preparing: StatusPill(text: "Preparing", style: .neutral)
+    case .paused: StatusPill(text: "Paused", style: .warn)
+    case .cancelled: StatusPill(text: "Cancelled", style: .warn)
+    case .failed: StatusPill(text: "Failed", style: .err)
+    case .completed: StatusPill(text: "Completed", style: .ok)
+    }
+  }
+
+  /// The first completed video file in the batch, if one is still on disk.
+  private func playableURL(for batch: DownloadBatch) -> URL? {
+    coordinator.itemsForBatch(batch)
+      .filter { $0.status == .completed }
+      .map { URL(fileURLWithPath: $0.destinationPath) }
+      .first { url in
+        FileManager.default.fileExists(atPath: url.path)
+          && MediaFileType.isVideo(DirectoryEntry(name: url.lastPathComponent, url: url, kind: .file))
+      }
+  }
+
   private func perform(_ action: DownloadRowAction, on batch: DownloadBatch) {
     switch action {
     case .pause: Task { await coordinator.pause(batch) }
@@ -188,73 +308,6 @@ struct DownloadsInProgressView: View {
     case .removeFiles: partialDataBatch = batch
     case .reveal: coordinator.reveal(batch)
     case .delete: deletingBatch = batch
-    }
-  }
-}
-
-private struct DownloadProgressRow: View {
-  let batch: DownloadBatch
-  let itemCount: Int
-  let perform: (DownloadRowAction) -> Void
-  @Environment(\.myraAccent) private var accent
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      HStack {
-        Image(systemName: statusIcon).foregroundStyle(statusColor)
-        Text(batch.title).font(.headline).lineLimit(1)
-        Spacer()
-        Text(batch.status.rawValue.capitalized).foregroundStyle(.secondary)
-      }
-      ProgressView(value: batch.progress)
-      HStack(spacing: 12) {
-        Text(
-          "\(DownloadFormat.bytes(batch.completedBytes)) of \(DownloadFormat.bytes(batch.totalBytes))"
-        )
-        Text("\(DownloadFormat.bytes(batch.downloadSpeed))/s")
-        Text("Elapsed \(DownloadFormat.duration(batch.elapsed))")
-        if let eta = batch.estimatedSecondsRemaining {
-          Text("ETA \(DownloadFormat.duration(eta))")
-        }
-        Text("\(itemCount) files")
-        Spacer()
-        HStack(spacing: 6) {
-          ForEach(DownloadsModel.actions(for: batch.status), id: \.self) { action in
-            Button(role: action.isDestructive ? .destructive : nil) {
-              perform(action)
-            } label: {
-              Label(action.title, systemImage: action.symbol)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .help("\(action.title) \(batch.title)")
-            .accessibilityLabel("\(action.title) \(batch.title)")
-          }
-        }
-      }
-      .font(.caption)
-      .foregroundStyle(.secondary)
-      if let error = batch.errorMessage { Text(error).font(.caption).foregroundStyle(.red) }
-    }
-    .padding(.vertical, 8)
-  }
-
-  private var statusIcon: String {
-    switch batch.status {
-    case .completed: "checkmark.circle.fill"
-    case .failed: "exclamationmark.triangle.fill"
-    case .paused: "pause.circle.fill"
-    case .cancelled: "xmark.circle"
-    default: "arrow.down.circle.fill"
-    }
-  }
-
-  private var statusColor: Color {
-    switch batch.status {
-    case .completed: .green
-    case .failed: .red
-    case .paused, .cancelled: .orange
-    default: accent.color
     }
   }
 }

@@ -12,19 +12,10 @@ enum SourceStatus: Equatable, Sendable {
 
   var title: String {
     switch self {
-    case .unavailable: "Unavailable"
-    case .indexing: "Indexing"
+    case .unavailable: "Unreachable"
+    case .indexing: "Scanning"
     case .indexed: "Indexed"
     case .notIndexed: "Not indexed"
-    }
-  }
-
-  var symbol: String {
-    switch self {
-    case .unavailable: "exclamationmark.triangle.fill"
-    case .indexing: "arrow.triangle.2.circlepath"
-    case .indexed: "checkmark.circle.fill"
-    case .notIndexed: "circle.dashed"
     }
   }
 }
@@ -37,6 +28,8 @@ struct SourceSummary: Identifiable, Equatable, Sendable {
   let status: SourceStatus
   let titleCount: Int
   let mediaCount: Int
+  /// Total size of the videos indexed from this source, shown as the "media" statistic.
+  var mediaBytes: Int64 = 0
 }
 
 enum SourceSummaries {
@@ -47,18 +40,21 @@ enum SourceSummaries {
     return url.host ?? url.scheme ?? "Unknown location"
   }
 
-  /// Counts titles and videos per source from the catalogue. Unavailable beats indexing, which beats indexed.
+  /// Counts titles, videos and bytes per source from the catalogue.
+  /// Unavailable beats indexing, which beats indexed.
   static func make(
     sources: [SourceInput], titles: [EntertainmentTitle], unavailableNames: Set<String>,
     isIndexing: Bool
   ) -> [SourceSummary] {
     var titleCounts: [UUID: Int] = [:]
     var mediaCounts: [UUID: Int] = [:]
+    var mediaBytes: [UUID: Int64] = [:]
     for title in titles {
       var sourcesOfTitle = Set<UUID>()
       for version in title.versions {
         let sourceID = version.media.categoryID
         mediaCounts[sourceID, default: 0] += 1
+        mediaBytes[sourceID, default: 0] += version.media.entry.size ?? 0
         sourcesOfTitle.insert(sourceID)
       }
       for sourceID in sourcesOfTitle { titleCounts[sourceID, default: 0] += 1 }
@@ -75,8 +71,29 @@ enum SourceSummaries {
       }
       return SourceSummary(
         id: source.id, name: source.name, host: host(for: source.rootURLString), status: status,
-        titleCount: titleCounts[source.id] ?? 0, mediaCount: media)
+        titleCount: titleCounts[source.id] ?? 0, mediaCount: media,
+        mediaBytes: mediaBytes[source.id] ?? 0)
     }
+  }
+
+  /// The compact "since scan" age from the preview: "now", "4 min", "2 hr", "2 days".
+  static func scanAge(since date: Date?, now: Date = .now) -> String {
+    guard let date else { return "never" }
+    let seconds = max(0, now.timeIntervalSince(date))
+    if seconds < 60 { return "now" }
+    if seconds < 3600 { return "\(Int(seconds / 60)) min" }
+    if seconds < 86_400 { return "\(Int(seconds / 3600)) hr" }
+    let days = Int(seconds / 86_400)
+    return days == 1 ? "1 day" : "\(days) days"
+  }
+}
+
+/// Resolution labels read from file names, shown as the Quality tag in the source browser.
+enum SourceFileFormat {
+  static let resolutions = ["2160p", "1080p", "720p", "480p"]
+
+  static func resolution(for fileName: String) -> String? {
+    resolutions.first { fileName.localizedCaseInsensitiveContains($0) }
   }
 }
 
@@ -106,7 +123,23 @@ enum SourceBrowserLayout: String, CaseIterable, Identifiable, Sendable {
   }
 }
 
-/// The Sources landing page: a grid of source cards, with a card to add another source.
+/// A small uppercase label from the preview's `.tag` style, used for quality and transfer kind.
+struct LibraryTag: View {
+  let text: String
+
+  var body: some View {
+    Text(text.uppercased())
+      .font(.system(size: 10, weight: .bold))
+      .tracking(0.4)
+      .foregroundStyle(MyraColor.text2)
+      .padding(.horizontal, 6)
+      .padding(.vertical, 1)
+      .background(MyraColor.fill2, in: RoundedRectangle(cornerRadius: 4))
+      .lineLimit(1)
+  }
+}
+
+/// The Sources landing page: a grid of source cards (`.grid`, `.source`), with a dashed card to add one.
 struct SourcesOverview: View {
   let summaries: [SourceSummary]
   let isIndexing: Bool
@@ -119,13 +152,14 @@ struct SourcesOverview: View {
 
   var body: some View {
     ScrollView {
-      VStack(alignment: .leading, spacing: 18) {
-        VStack(alignment: .leading, spacing: 4) {
-          Text("Sources").font(.largeTitle.bold())
-          Text(caption).font(.callout).foregroundStyle(.secondary)
-        }
+      VStack(alignment: .leading, spacing: 0) {
+        Text(caption)
+          .font(.system(size: 12))
+          .foregroundStyle(MyraColor.text2)
+          .padding(.top, 8)
+          .padding(.bottom, 12)
         LazyVGrid(
-          columns: [GridItem(.adaptive(minimum: 250, maximum: 320), spacing: 16)], spacing: 16
+          columns: [GridItem(.adaptive(minimum: 250), spacing: 14, alignment: .top)], spacing: 14
         ) {
           ForEach(summaries) { summary in
             SourceCard(
@@ -136,7 +170,9 @@ struct SourcesOverview: View {
           AddSourceCard(action: addSource)
         }
       }
-      .padding(24)
+      .padding(.horizontal, 26)
+      .padding(.top, 4)
+      .padding(.bottom, 30)
     }
   }
 
@@ -144,30 +180,6 @@ struct SourcesOverview: View {
     let videos = summaries.reduce(0) { $0 + $1.mediaCount }
     let sourceCount = summaries.count
     return "\(sourceCount) \(sourceCount == 1 ? "source" : "sources") • \(videos) \(videos == 1 ? "video" : "videos") in the local index"
-  }
-}
-
-struct SourceStatusBadge: View {
-  let status: SourceStatus
-  @Environment(\.myraAccent) private var accent
-
-  var body: some View {
-    Label(status.title, systemImage: status.symbol)
-      .font(.caption.weight(.semibold))
-      .labelStyle(.titleAndIcon)
-      .padding(.horizontal, 8).padding(.vertical, 3)
-      .foregroundStyle(color)
-      .background(color.opacity(0.14), in: Capsule())
-      .accessibilityLabel("Status: \(status.title)")
-  }
-
-  private var color: Color {
-    switch status {
-    case .indexed: .green
-    case .unavailable: .orange
-    case .indexing: accent.color
-    case .notIndexed: .secondary
-    }
   }
 }
 
@@ -179,39 +191,60 @@ private struct SourceCard: View {
   let open: () -> Void
   let edit: () -> Void
   let delete: () -> Void
+
+  @State private var isHovering = false
   @Environment(\.myraAccent) private var accent
+  @Environment(\.colorScheme) private var colorScheme
 
   var body: some View {
     Button(action: open) {
-      VStack(alignment: .leading, spacing: 12) {
-        HStack(alignment: .top) {
-          Image(systemName: summary.host == "This Mac" ? "folder.fill" : "externaldrive.connected.to.line.below")
-            .font(.title2).foregroundStyle(accent.color)
-          Spacer()
-          SourceStatusBadge(status: summary.status)
+      VStack(alignment: .leading, spacing: 10) {
+        HStack(spacing: 10) {
+          Image(systemName: summary.host == "This Mac" ? "folder.fill" : "server.rack")
+            .font(.system(size: 18))
+            .foregroundStyle(accent.color)
+            .frame(width: 36, height: 36)
+            .background(
+              accent.color.opacity(colorScheme == .dark ? 0.20 : 0.13),
+              in: RoundedRectangle(cornerRadius: 9))
+            .accessibilityHidden(true)
+          VStack(alignment: .leading, spacing: 0) {
+            Text(summary.name)
+              .font(.system(size: 13, weight: .bold))
+              .lineLimit(1)
+            Text(summary.host)
+              .font(.system(size: 12))
+              .foregroundStyle(MyraColor.text2)
+              .lineLimit(1)
+          }
+          Spacer(minLength: 6)
+          pill
         }
-        VStack(alignment: .leading, spacing: 3) {
-          Text(summary.name).font(.headline).lineLimit(1)
-          Text(summary.host).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-        }
-        Text("\(summary.titleCount) titles • \(summary.mediaCount) videos")
-          .font(.callout).foregroundStyle(.secondary)
         if summary.status == .indexing {
-          ProgressView(value: indexingFraction).progressViewStyle(.linear)
-          Text("Scanning this library…").font(.caption).foregroundStyle(.secondary)
-        } else {
-          Text(lastScanText).font(.caption).foregroundStyle(.secondary)
+          ProgressBarView(fraction: indexingFraction)
+        }
+        HStack(alignment: .top, spacing: 16) {
+          stat(summary.titleCount.formatted(), "titles")
+          stat(
+            ByteCountFormatter.string(fromByteCount: summary.mediaBytes, countStyle: .file),
+            "media")
+          if summary.status == .indexing {
+            stat("now", "scanning")
+          } else {
+            stat(SourceSummaries.scanAge(since: lastIndexed), "since scan")
+          }
         }
       }
       .padding(16)
       .frame(maxWidth: .infinity, alignment: .leading)
-      .background(.regularMaterial, in: RoundedRectangle(cornerRadius: MyraRadius.card))
+      .background(MyraColor.content, in: RoundedRectangle(cornerRadius: MyraRadius.panel))
       .overlay(
-        RoundedRectangle(cornerRadius: MyraRadius.card)
-          .stroke(.secondary.opacity(0.2), lineWidth: 1))
-      .contentShape(RoundedRectangle(cornerRadius: MyraRadius.card))
+        RoundedRectangle(cornerRadius: MyraRadius.panel)
+          .stroke(isHovering ? accent.color : MyraColor.line, lineWidth: 1))
+      .contentShape(RoundedRectangle(cornerRadius: MyraRadius.panel))
     }
     .buttonStyle(.plain)
+    .onHover { isHovering = $0 }
     .help("Browse \(summary.name)")
     .accessibilityLabel(
       "\(summary.name), \(summary.host), \(summary.status.title), \(summary.titleCount) titles")
@@ -221,30 +254,52 @@ private struct SourceCard: View {
     }
   }
 
-  private var lastScanText: String {
-    guard let lastIndexed else { return "Not indexed yet" }
-    return "Index updated \(lastIndexed.formatted(date: .abbreviated, time: .shortened))"
+  @ViewBuilder private var pill: some View {
+    switch summary.status {
+    case .indexed:
+      StatusPill(text: "Indexed", style: .ok)
+    case .indexing:
+      StatusPill(
+        text: "Scanning \(Int((min(1, max(0, indexingFraction)) * 100).rounded()))%", style: .live)
+    case .unavailable:
+      StatusPill(text: "Unreachable", style: .warn)
+    case .notIndexed:
+      StatusPill(text: "Not indexed", style: .neutral)
+    }
+  }
+
+  private func stat(_ value: String, _ label: String) -> some View {
+    VStack(alignment: .leading, spacing: 0) {
+      Text(value)
+        .font(.system(size: 15, weight: .bold))
+        .foregroundStyle(MyraColor.text)
+        .monospacedDigit()
+        .lineLimit(1)
+      Text(label)
+        .font(.system(size: 12))
+        .foregroundStyle(MyraColor.text2)
+    }
   }
 }
 
+/// The dashed "Add Source" card at the end of the grid (`.source.add`).
 private struct AddSourceCard: View {
   let action: () -> Void
-  @Environment(\.myraAccent) private var accent
 
   var body: some View {
     Button(action: action) {
-      VStack(spacing: 10) {
-        Image(systemName: "plus.circle.fill").font(.largeTitle).foregroundStyle(accent.color)
-        Text("Add Source").font(.headline)
-        Text("Choose a folder or network share to index.")
-          .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+      VStack(spacing: 8) {
+        Image(systemName: "plus")
+          .font(.system(size: 20, weight: .regular))
+        Text("Add Source")
+          .font(.system(size: 13))
       }
+      .foregroundStyle(MyraColor.text2)
       .frame(maxWidth: .infinity, minHeight: 150)
-      .padding(16)
       .overlay(
-        RoundedRectangle(cornerRadius: MyraRadius.card)
-          .strokeBorder(.secondary.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [5])))
-      .contentShape(RoundedRectangle(cornerRadius: MyraRadius.card))
+        RoundedRectangle(cornerRadius: MyraRadius.panel)
+          .strokeBorder(MyraColor.lineStrong, style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
+      .contentShape(RoundedRectangle(cornerRadius: MyraRadius.panel))
     }
     .buttonStyle(.plain)
     .help("Add a folder or network share as a source")
