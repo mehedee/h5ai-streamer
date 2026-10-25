@@ -1,8 +1,8 @@
 {
   "fill": {
     "linear-gradient": [
-      "srgb:0.145,0.165,0.38,1",
-      "srgb:0.28,0.14,0.5,1"
+      "srgb:0.1333,0.7569,0.7647,1",
+      "srgb:0.1686,0.2941,0.8471,1"
     ],
     "orientation": {
       "start": {
@@ -20,8 +20,8 @@
       "appearance": "dark",
       "value": {
         "linear-gradient": [
-          "srgb:0.055,0.065,0.13,1",
-          "srgb:0.12,0.08,0.23,1"
+          "srgb:0.0784,0.1882,0.2275,1",
+          "srgb:0.0314,0.0588,0.1098,1"
         ],
         "orientation": {
           "start": {
@@ -43,14 +43,14 @@
     {
       "layers": [
         {
-          "image-name": "halo.svg",
-          "name": "Ambient halo",
+          "image-name": "secondary.svg",
+          "name": "Ribbon forward chevron",
           "glass": true,
-          "opacity": 0.3
+          "opacity": 0.55
         },
         {
-          "image-name": "mark.svg",
-          "name": "Myra Cinema",
+          "image-name": "primary.svg",
+          "name": "Ribbon M",
           "glass": true,
           "fill": "automatic"
         }
