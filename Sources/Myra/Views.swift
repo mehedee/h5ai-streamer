@@ -2,213 +2,6 @@ import AppKit
 import SwiftData
 import SwiftUI
 
-private enum AppSection: String, CaseIterable, Identifiable {
-  case home = "Home"
-  case library = "Library"
-  case offline = "Offline Library"
-  case torrents = "Torrents"
-  case settings = "Settings"
-
-  var id: String { rawValue }
-  /// Sidebar grouping in the style of Apple's media apps.
-  static let groups: [(title: String, sections: [AppSection])] = [
-    ("Watch Now", [.home]), ("Library", [.library, .offline]), ("Torrents", [.torrents]),
-    ("Myra", [.settings]),
-  ]
-  var sidebarTitle: String {
-    switch self {
-    case .library: "Sources"
-    case .offline: "Downloaded"
-    case .torrents: "Transfers"
-    default: rawValue
-    }
-  }
-  var icon: String {
-    switch self {
-    case .home: "house"
-    case .library: "folder"
-    case .offline: "externaldrive"
-    case .torrents: "network"
-    case .settings: "gearshape"
-    }
-  }
-}
-
-struct RootView: View {
-  @ObservedObject var coordinator: AppCoordinator
-  @ObservedObject private var player: EmbeddedPlayerModel
-  @Environment(\.modelContext) private var modelContext
-  @State private var section: AppSection? = .home
-  @State private var isDownloadDrawerExpanded = false
-
-  init(coordinator: AppCoordinator) {
-    self.coordinator = coordinator
-    _player = ObservedObject(wrappedValue: coordinator.player)
-  }
-
-  private var fullscreenPlayback: Bool { player.media != nil && player.isFullscreen }
-
-  var body: some View {
-    GeometryReader { geometry in
-      ZStack {
-        CodexBackground()
-        VStack(spacing: 0) {
-          ZStack {
-            NavigationSplitView {
-              List(selection: $section) {
-                ForEach(AppSection.groups, id: \.title) { group in
-                  Section(group.title) {
-                    ForEach(group.sections) { item in
-                      Label(item.sidebarTitle, systemImage: item.icon).tag(item)
-                    }
-                  }
-                }
-              }
-              .scrollContentBackground(.hidden)
-              .background(.thinMaterial)
-              .navigationTitle("Myra")
-              .navigationSplitViewColumnWidth(min: 170, ideal: 190)
-            } detail: {
-              Group {
-                switch section ?? .home {
-                case .home:
-                  HomeView(coordinator: coordinator, store: coordinator.entertainment)
-                case .library:
-                  LibraryPlayerContainer(coordinator: coordinator)
-                case .offline:
-                  OfflineLibraryView(coordinator: coordinator)
-                case .torrents:
-                  TorrentsView(controller: coordinator.torrents)
-                case .settings:
-                  if let settings = coordinator.settings {
-                    SettingsView(coordinator: coordinator, settings: settings)
-                  } else {
-                    ProgressView()
-                  }
-                }
-              }
-              .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-              .background(.ultraThinMaterial)
-              .task { coordinator.configure(modelContext: modelContext) }
-              .alert(
-                "Myra",
-                isPresented: Binding(
-                  get: { coordinator.errorMessage != nil },
-                  set: { if !$0 { coordinator.errorMessage = nil } }
-                )
-              ) {
-                Button("OK") { coordinator.errorMessage = nil }
-              } message: {
-                Text(coordinator.errorMessage ?? "Unknown error")
-              }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .opacity(player.media == nil ? 1 : 0)
-            .allowsHitTesting(player.media == nil)
-            .accessibilityHidden(player.media != nil)
-            if player.media != nil {
-              EmbeddedPlayerView(coordinator: coordinator, player: player)
-            }
-          }
-          if !fullscreenPlayback {
-            LibraryIndexStatusView(
-              library: coordinator.library, refresh: coordinator.refreshLibraryIndex)
-            if coordinator.hasDownloadQueue {
-              DownloadDrawer(
-                coordinator: coordinator,
-                isExpanded: $isDownloadDrawerExpanded,
-                expandedHeight: min(340, geometry.size.height * 0.43)
-              )
-            }
-          }
-        }
-      }
-      .sheet(item: $coordinator.playbackChoices) { choices in
-        PlaybackChoicesView(choices: choices, play: coordinator.playChosenVersion)
-      }
-      .animation(.snappy(duration: 0.28), value: isDownloadDrawerExpanded)
-      .overlay(alignment: .topTrailing) {
-        if let message = coordinator.toastMessage, !fullscreenPlayback {
-          ToastView(message: message)
-            .padding(.top, 12)
-            .padding(.trailing, 16)
-            .transition(.move(edge: .top).combined(with: .opacity))
-        }
-      }
-    }
-    .ignoresSafeArea(edges: fullscreenPlayback ? .all : [])
-    .background(PlayerWindowAttachment(player: player))
-    .font(.system(size: 14, weight: .regular, design: .default))
-    .environment(\.defaultMinListRowHeight, 42)
-    .tint(.accentColor)
-    .preferredColorScheme(preferredColorScheme)
-    .onChange(of: coordinator.hasDownloadQueue) { _, visible in
-      if !visible { isDownloadDrawerExpanded = false }
-    }
-    .toolbar(fullscreenPlayback ? .hidden : .automatic, for: .windowToolbar)
-    .toolbarBackground(.regularMaterial, for: .windowToolbar)
-    .toolbarBackground(.visible, for: .windowToolbar)
-    .toolbar {
-      if player.media != nil {
-        ToolbarItem(placement: .navigation) {
-          Button {
-            player.close()
-          } label: {
-            Label("Back to Library", systemImage: "chevron.left")
-          }
-        }.continuousHeaderBackground()
-        ToolbarItem(placement: .principal) {
-          Text(player.media.map { MediaIdentity.parse(filename: $0.entry.name).title } ?? "Player")
-            .font(.headline).lineLimit(1).help(player.media?.entry.name ?? "")
-        }.continuousHeaderBackground()
-        ToolbarItemGroup(placement: .primaryAction) {
-          Text(player.status).font(.caption).foregroundStyle(.secondary)
-          Button {
-            player.toggleFullscreen()
-          } label: {
-            Image(systemName: "arrow.up.left.and.arrow.down.right")
-          }
-          .help("Enter fullscreen").accessibilityIdentifier("player.fullscreen")
-        }.continuousHeaderBackground()
-      } else {
-        ToolbarItem(placement: .principal) {
-          if section == .home {
-            HomeToolbarTitle(store: coordinator.entertainment)
-          } else {
-            Text((section ?? .home).rawValue).font(.headline)
-          }
-        }.continuousHeaderBackground()
-        ToolbarItem(placement: .primaryAction) {
-          Button {
-            coordinator.cycleTheme()
-          } label: {
-            Image(systemName: themeIcon)
-          }
-          .help("Theme: \(themeMode.displayName). Click for \(themeMode.next.displayName).")
-        }.continuousHeaderBackground()
-      }
-    }
-  }
-
-  private var themeMode: AppThemeMode { coordinator.settings?.theme ?? .system }
-
-  private var preferredColorScheme: ColorScheme? {
-    switch themeMode {
-    case .system: nil
-    case .light: .light
-    case .dark: .dark
-    }
-  }
-
-  private var themeIcon: String {
-    switch themeMode {
-    case .system: "circle.lefthalf.filled"
-    case .light: "sun.max.fill"
-    case .dark: "moon.stars.fill"
-    }
-  }
-}
-
 struct LibraryView: View {
   @ObservedObject var coordinator: AppCoordinator
   @State private var showingAddCategory = false
@@ -1050,7 +843,7 @@ private struct WelcomeFeature: View {
   }
 }
 
-private struct ToastView: View {
+struct ToastView: View {
   let message: String
 
   var body: some View {
@@ -1067,7 +860,7 @@ private struct ToastView: View {
   }
 }
 
-private struct CodexBackground: View {
+struct CodexBackground: View {
   @Environment(\.colorScheme) private var colorScheme
 
   var body: some View {
@@ -1097,7 +890,7 @@ private struct NativeVisualEffectView: NSViewRepresentable {
   func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
-private struct DownloadDrawer: View {
+struct DownloadDrawer: View {
   @ObservedObject var coordinator: AppCoordinator
   @Binding var isExpanded: Bool
   let expandedHeight: CGFloat
@@ -1554,7 +1347,7 @@ private enum DurationFormatter {
   }
 }
 
-private struct HomeToolbarTitle: View {
+struct HomeToolbarTitle: View {
   @ObservedObject var store: EntertainmentStore
   var body: some View {
     HStack(spacing: 10) {
