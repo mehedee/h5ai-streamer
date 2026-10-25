@@ -158,7 +158,7 @@
 		F41000000000000000000006 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzySearch.swift; sourceTree = "<group>"; };
 		F41000000000000000000007 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyraAppearanceTests.swift; sourceTree = "<group>"; };
 		F41000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzySearchTests.swift; sourceTree = "<group>"; };
-		F43000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = folder.icon; path = Resources/MyraIcons/signature.icon; sourceTree = SOURCE_ROOT; };
+		F43000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = folder.icon; path = Resources/MyraIcons/aperture.icon; sourceTree = SOURCE_ROOT; };
 		F43000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = folder; path = Sources/Myra/Resources/MyraIcons; sourceTree = SOURCE_ROOT; };
 		F41000000000000000000009 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyraAIUITests.swift; sourceTree = "<group>"; };
 		F41000000000000000000010 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyraAITests.swift; sourceTree = "<group>"; };
@@ -463,7 +463,7 @@ F44000000000000000000001, F44000000000000000000002,
 		F00000000000000000000001 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {ARCHS = arm64; CLANG_ENABLE_MODULES = YES; MACOSX_DEPLOYMENT_TARGET = 14.0; ONLY_ACTIVE_ARCH = YES; SDKROOT = macosx; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)"; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; }; name = Debug; };
 		F00000000000000000000002 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {ARCHS = arm64; CLANG_ENABLE_MODULES = YES; MACOSX_DEPLOYMENT_TARGET = 14.0; ONLY_ACTIVE_ARCH = YES; SDKROOT = macosx; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_OPTIMIZATION_LEVEL = "-O"; }; name = Release; };
 		F00100000000000000000001 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {
-			ASSETCATALOG_COMPILER_APPICON_NAME = signature;
+			ASSETCATALOG_COMPILER_APPICON_NAME = aperture;
 			ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 			CODE_SIGNING_ALLOWED = NO;
 			CURRENT_PROJECT_VERSION = 12;
@@ -484,7 +484,7 @@ F44000000000000000000001, F44000000000000000000002,
 			SWIFT_VERSION = 6.0;
 		}; name = Debug; };
 		F00100000000000000000002 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {
-			ASSETCATALOG_COMPILER_APPICON_NAME = signature;
+			ASSETCATALOG_COMPILER_APPICON_NAME = aperture;
 			ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 			CODE_SIGNING_ALLOWED = NO;
 			CURRENT_PROJECT_VERSION = 12;

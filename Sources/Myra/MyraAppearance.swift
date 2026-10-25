@@ -59,8 +59,6 @@ enum MyraIconAppearance: String, CaseIterable, Identifiable {
     }
   }
 
-  /// Retained so existing call sites that named the glass choice keep compiling.
-  static var glass: MyraIconAppearance { .clear }
 }
 
 /// A narrow AppKit bridge changes only the running Dock icon, never the signed bundle.
