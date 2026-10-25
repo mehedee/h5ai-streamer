@@ -26,6 +26,11 @@ struct HomeView: View {
   @State private var randomPick: EntertainmentTitle?
   @State private var randomPickFilters = "your current filters"
   @State private var expandedShelves: Set<String> = []
+  @State private var mood: MyraMood?
+  @State private var tonight: [MyraRecommendation] = []
+  @State private var tonightIndex = 0
+  @State private var tonightHeadline = ""
+  @State private var showingWhy = false
 
   @State private var prepared = HomeCatalogueProjection()
   @State private var preparedFilter: HomeCatalogueFilter?
@@ -45,10 +50,14 @@ struct HomeView: View {
   private var latest: [EntertainmentTitle] { prepared.latest }
   private var watchlist: [EntertainmentTitle] { prepared.watchlist }
 
-  init(coordinator: AppCoordinator, store: EntertainmentStore, initialQuery: String = "") {
+  init(
+    coordinator: AppCoordinator, store: EntertainmentStore, initialQuery: String = "",
+    initialMood: MyraMood? = nil
+  ) {
     self.coordinator = coordinator
     self.store = store
     _query = State(initialValue: initialQuery)
+    _mood = State(initialValue: initialMood)
   }
 
   var body: some View {
@@ -76,6 +85,9 @@ struct HomeView: View {
             && preparedFilter == filter
           {
             ContentUnavailableView.search(text: query)
+          }
+          if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            tonightSection
           }
           shelf(
             "Continue Watching", subtitle: "Resume unfinished movies and episodes",
@@ -130,6 +142,22 @@ struct HomeView: View {
         prepared = projection
         preparedFilter = request
       } catch is CancellationError {} catch {}
+    }
+    .task(
+      id: TonightRequest(
+        mood: mood, filter: preparedFilter, personalRevision: store.personalChangeRevision)
+    ) {
+      guard preparedFilter != nil else { return }
+      let context = tonightContext()
+      let titles = filtered
+      let personal = store.personal
+      let results = await Task.detached(priority: .userInitiated) {
+        MyraRecommender.recommend(titles: titles, personal: personal, context: context, limit: 9)
+      }.value
+      guard !Task.isCancelled else { return }
+      tonight = results
+      tonightIndex = 0
+      tonightHeadline = MyraRecommender.headline(for: context)
     }
     .sheet(item: $details, onDismiss: presentPendingChoice) { title in
       EntertainmentDetailView(
@@ -379,6 +407,105 @@ struct HomeView: View {
     hideWatched = false
   }
 
+  private func tonightContext(now: Date = .now) -> MyraViewingContext {
+    let feedback = store.personal.recommendationFeedback ?? .init()
+    // Rotating the seed daily keeps picks stable through an evening but fresh tomorrow.
+    let day = UInt64(Calendar.current.ordinality(of: .day, in: .era, for: now) ?? 0)
+    return MyraViewingContext(
+      date: now, mood: mood, liked: feedback.liked, disliked: feedback.disliked,
+      dismissed: feedback.activeDismissals(at: now), seed: day)
+  }
+
+  private var tonightPick: MyraRecommendation? {
+    tonight.isEmpty ? nil : tonight[tonightIndex % tonight.count]
+  }
+
+  @ViewBuilder private var tonightSection: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      if let pick = tonightPick { tonightBanner(pick) }
+      moodChips
+      if let mood {
+        shelf(
+          "\(mood.title) picks", subtitle: "Ranked on this Mac from your mood, time and history",
+          titles: tonight.filter { $0.id != tonightPick?.id }.map(\.title))
+      }
+    }
+  }
+
+  private func tonightBanner(_ pick: MyraRecommendation) -> some View {
+    let title = pick.title
+    var facts = [title.year ?? title.kind.rawValue.capitalized]
+    facts += (title.metadata?.genres ?? []).prefix(2)
+    if let minutes = MyraAIContext.runtime(title) { facts.append(MyraRecommender.duration(minutes)) }
+    if let rating = title.metadata?.rating, rating > 0 { facts.append(String(format: "★ %.1f", rating)) }
+    return HStack(alignment: .top, spacing: 20) {
+      AsyncImage(url: title.posterURL) { image in
+        image.resizable().scaledToFill()
+      } placeholder: {
+        ZStack {
+          Rectangle().fill(.quaternary)
+          Image(systemName: title.kind == .series ? "tv" : "film").font(.largeTitle)
+            .foregroundStyle(.secondary)
+        }
+      }
+      .frame(width: 120, height: 170).clipShape(RoundedRectangle(cornerRadius: 10))
+      VStack(alignment: .leading, spacing: 8) {
+        Text("Tonight's pick · \(tonightHeadline)").textCase(.uppercase)
+          .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        Text(title.displayName).font(.largeTitle.bold()).lineLimit(2)
+        Text(facts.joined(separator: " · ")).font(.callout).foregroundStyle(.secondary)
+        if let reason = pick.reasons.first {
+          Label(reason, systemImage: "sparkles").font(.callout)
+        }
+        HStack(spacing: 10) {
+          Button {
+            start(title)
+          } label: {
+            Label(title.resumeVersion == nil ? "Play" : "Resume", systemImage: "play.fill")
+          }
+          .buttonStyle(.borderedProminent)
+          Button("Another") { tonightIndex += 1 }
+            .disabled(tonight.count < 2)
+          Button("Why?") { showingWhy = true }
+            .popover(isPresented: $showingWhy, arrowEdge: .bottom) { TonightWhyView(pick: pick) }
+          Menu {
+            RecommendationFeedbackItems(titleID: title.id, store: store)
+          } label: {
+            Image(systemName: "hand.thumbsup")
+          }
+          .menuIndicator(.hidden).fixedSize().help("Recommendation feedback")
+          .accessibilityLabel("Recommendation feedback")
+        }
+        .controlSize(.large).padding(.top, 4)
+      }
+      Spacer(minLength: 0)
+    }
+    .padding(20)
+    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+  }
+
+  private var moodChips: some View {
+    ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: 8) {
+        Text("In the mood for").font(.callout).foregroundStyle(.secondary)
+        ForEach(MyraMood.allCases) { item in
+          let selected = mood == item
+          Button {
+            mood = selected ? nil : item
+          } label: {
+            Text(item.title).padding(.horizontal, 12).padding(.vertical, 5)
+              .foregroundStyle(selected ? Color.white : Color.primary)
+              .background(
+                selected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quaternary),
+                in: Capsule())
+          }
+          .buttonStyle(.plain)
+          .accessibilityAddTraits(selected ? .isSelected : [])
+        }
+      }
+    }
+  }
+
   private func pickSomething() {
     guard preparedFilter == filter else { return }
     randomPick = EntertainmentPick.select(
@@ -462,6 +589,9 @@ private struct EntertainmentCard: View {
             store.toggleWatched(title.id)
           }
           Button("Details and versions", action: details)
+          Divider()
+          RecommendationFeedbackItems(titleID: title.id, store: store)
+          Divider()
           if title.kind == .series {
             Button(store.personal.followed.contains(title.id) ? "Unfollow series" : "Follow series")
             { store.toggleFollow(title.id) }
@@ -480,6 +610,62 @@ private struct EntertainmentCard: View {
         }.menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: 22)
       }
     }.frame(width: 170)
+  }
+}
+
+struct TonightWhyView: View {
+  let pick: MyraRecommendation
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Why \(pick.title.displayName)?").font(.headline)
+      if pick.reasons.isEmpty {
+        Text("A well-rated unwatched title from your library.")
+      }
+      ForEach(pick.reasons, id: \.self) { Label($0, systemImage: "checkmark") }
+      Text(
+        "Ranked on this Mac from your mood, the time of day and your viewing history. No AI request was made."
+      )
+      .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+    }
+    .padding(16).frame(width: 300)
+  }
+}
+
+private struct TonightRequest: Hashable {
+  var mood: MyraMood?
+  var filter: HomeCatalogueFilter?
+  var personalRevision: Int
+}
+
+/// Feedback items shared by the Tonight banner and card menus; saved in personal data.
+struct RecommendationFeedbackItems: View {
+  let titleID: String
+  @ObservedObject var store: EntertainmentStore
+
+  var body: some View {
+    let feedback = store.personal.recommendationFeedback
+    Button {
+      store.react(.like, to: titleID)
+    } label: {
+      Label(
+        "More Like This",
+        systemImage: feedback?.liked.contains(titleID) == true
+          ? "hand.thumbsup.fill" : "hand.thumbsup")
+    }
+    Button {
+      store.react(.dislike, to: titleID)
+    } label: {
+      Label(
+        "Less Like This",
+        systemImage: feedback?.disliked.contains(titleID) == true
+          ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+    }
+    Button {
+      store.react(.notTonight, to: titleID)
+    } label: {
+      Label("Not Tonight", systemImage: "moon.zzz")
+    }
   }
 }
 

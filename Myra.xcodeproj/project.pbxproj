@@ -66,6 +66,7 @@
 		F42000000000000000000001 = {isa = PBXBuildFile; fileRef = F41000000000000000000001; };
 		F42000000000000000000002 = {isa = PBXBuildFile; fileRef = F41000000000000000000002; };
 		F42000000000000000000003 = {isa = PBXBuildFile; fileRef = F41000000000000000000003; };
+		F47000000000000000000002 = {isa = PBXBuildFile; fileRef = F47000000000000000000001; };
 		F42000000000000000000004 = {isa = PBXBuildFile; fileRef = F41000000000000000000004; };
 		F42000000000000000000005 = {isa = PBXBuildFile; fileRef = F41000000000000000000005; };
 		F42000000000000000000006 = {isa = PBXBuildFile; fileRef = F41000000000000000000006; };
@@ -75,6 +76,7 @@
 		F44000000000000000000002 = {isa = PBXBuildFile; fileRef = F43000000000000000000002; };
 		F42000000000000000000009 = {isa = PBXBuildFile; fileRef = F41000000000000000000009; };
 		F42000000000000000000010 = {isa = PBXBuildFile; fileRef = F41000000000000000000010; };
+		F47000000000000000000004 = {isa = PBXBuildFile; fileRef = F47000000000000000000003; };
 		F42000000000000000000011 = {isa = PBXBuildFile; fileRef = F41000000000000000000011; };
 		F42000000000000000000012 = {isa = PBXBuildFile; fileRef = F41000000000000000000012; };
 /* End PBXBuildFile section */
@@ -150,6 +152,7 @@
 		F41000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyraAIModels.swift; sourceTree = "<group>"; };
 		F41000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyraAIProviders.swift; sourceTree = "<group>"; };
 		F41000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyraAIStore.swift; sourceTree = "<group>"; };
+		F47000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyraRecommender.swift; sourceTree = "<group>"; };
 		F41000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyraAIViews.swift; sourceTree = "<group>"; };
 		F41000000000000000000005 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyraAppearance.swift; sourceTree = "<group>"; };
 		F41000000000000000000006 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzySearch.swift; sourceTree = "<group>"; };
@@ -159,6 +162,7 @@
 		F43000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = folder; path = Sources/Myra/Resources/MyraIcons; sourceTree = SOURCE_ROOT; };
 		F41000000000000000000009 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyraAIUITests.swift; sourceTree = "<group>"; };
 		F41000000000000000000010 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyraAITests.swift; sourceTree = "<group>"; };
+		F47000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyraRecommenderTests.swift; sourceTree = "<group>"; };
 		F41000000000000000000011 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyraAIProviderTests.swift; sourceTree = "<group>"; };
 		F41000000000000000000012 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyraAIActionTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -217,6 +221,7 @@
 				F41000000000000000000001,
 				F41000000000000000000002,
 				F41000000000000000000003,
+				F47000000000000000000001,
 				F41000000000000000000004,
 				F41000000000000000000005,
 				F41000000000000000000006,
@@ -273,6 +278,7 @@
 				F41000000000000000000008,
 				F41000000000000000000007,
 				F41000000000000000000010,
+				F47000000000000000000003,
 				F41000000000000000000009,
 				687A9446C2E9B6E8F637941A,
 				B00200000000000000000002,
@@ -385,6 +391,7 @@ F44000000000000000000001, F44000000000000000000002,
 				F42000000000000000000001,
 				F42000000000000000000002,
 				F42000000000000000000003,
+				F47000000000000000000002,
 				F42000000000000000000004,
 				F42000000000000000000005,
 				F42000000000000000000006,
@@ -433,6 +440,7 @@ F44000000000000000000001, F44000000000000000000002,
 				F42000000000000000000012,
 				F42000000000000000000011,
 				F42000000000000000000010,
+				F47000000000000000000004,
 				F42000000000000000000009,
 				A00200000000000000000001,
 				DF40E20F2EC764D71FE531AE,

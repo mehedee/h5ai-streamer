@@ -103,6 +103,21 @@ struct EntertainmentPersonalData: Codable, Sendable {
   var matchCorrections: [String: EntertainmentMatchCorrection] = [:]
   var preferences = EntertainmentPreferences()
   var history: [String: EntertainmentPlaybackRecord] = [:]
+  /// Optional so profiles written before recommendation feedback still decode.
+  var recommendationFeedback: MyraRecommendationFeedback?
+}
+
+struct MyraRecommendationFeedback: Codable, Sendable, Equatable {
+  var liked: Set<String> = []
+  var disliked: Set<String> = []
+  /// "Not tonight" dismissals; each expires after `dismissalLifetime`.
+  var dismissed: [String: Date] = [:]
+
+  static let dismissalLifetime: TimeInterval = 18 * 3600
+
+  func activeDismissals(at date: Date) -> Set<String> {
+    Set(dismissed.filter { date.timeIntervalSince($0.value) < Self.dismissalLifetime }.keys)
+  }
 }
 
 enum EntertainmentGrouping {
