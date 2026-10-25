@@ -6,13 +6,25 @@ enum AppPersistence {
   static let applicationSupportFolder = "com.mehedee.Myra"
   static let storeFilename = "Myra.store"
 
+  /// Developer switch: `MYRA_PROFILE_DIR` moves all app data into an isolated folder, so visual
+  /// checks never open a personal library. Unset in normal use.
+  static let profileOverrideVariable = "MYRA_PROFILE_DIR"
+
   static func persistentStoreURL(fileManager: FileManager = .default) throws -> URL {
-    let applicationSupport = try fileManager.url(
-      for: .applicationSupportDirectory,
-      in: .userDomainMask,
-      appropriateFor: nil,
-      create: true
-    )
+    let applicationSupport: URL
+    if let override = ProcessInfo.processInfo.environment[profileOverrideVariable],
+      !override.isEmpty
+    {
+      applicationSupport = URL(fileURLWithPath: override, isDirectory: true)
+      try fileManager.createDirectory(at: applicationSupport, withIntermediateDirectories: true)
+    } else {
+      applicationSupport = try fileManager.url(
+        for: .applicationSupportDirectory,
+        in: .userDomainMask,
+        appropriateFor: nil,
+        create: true
+      )
+    }
     let directory = applicationSupport.appending(
       path: applicationSupportFolder, directoryHint: .isDirectory)
     try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
