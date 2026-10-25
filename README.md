@@ -1,8 +1,8 @@
 # Myra
 
-**Myra 3.0.3 · build 11** — a personal native macOS entertainment library, player, and downloader. Browse h5ai, Apache, and nginx HTTP directory listings, organise movies and series, and play directly from your sources or completed downloads.
+**Myra 3.0.4 · build 12** — a personal native macOS entertainment library, player, and downloader. Browse h5ai, Apache, and nginx HTTP directory listings, organise movies and series, and play directly from your sources or completed downloads.
 
-Version 3.0.3 adds tabbed Settings, resilient incremental library indexing, and experimental torrent discovery and playback. Torrent networking is opt-in for each session; discovery searches run only when requested. Existing HTTP library, player, downloads and updater remain available.
+Version 3.0.4 adds a Tonight's pick banner and mood chips on Home, ranked on your Mac from your mood, the time of day and your viewing history, with More Like This, Less Like This and Not Tonight feedback. Version 3.0.3 added tabbed Settings, resilient incremental library indexing, and experimental torrent discovery and playback.
 
 ## Requirements and installation
 
@@ -87,6 +87,8 @@ Access seeking, audio and subtitle controls, playback speed, repeat, and volume 
 - Home searches hide shelves with no matching titles; clearing the search restores shelves without resetting other filters or expanded-shelf choices.
 - Vote-weighted Top Rated Movies, Series to Watch, Latest Releases, Recently Added, Watchlist, followed-series episode indicators, and personal collections.
 - Search and a single row of genre, language, year, source, rating, and watched filters.
+- **Tonight's pick** suggests one unwatched title for right now, ranked on your Mac from the selected mood, the time of day, an explicit or estimated time budget, your viewing history and feedback. **Another** shows the next suggestion; **Why?** lists the reasons. No AI request is made.
+- **In the mood for** chips (Cosy, Thrilling, Funny, Mind-bending, Feel-good, Something short, Background, Learn something) add a ranked shelf. Card menus offer More Like This, Less Like This, and Not Tonight (hidden for about 18 hours); feedback is saved with personal data and included in export.
 - **Pick something** waits for current Home filters, offers filter reset when no unwatched title matches, and opens a separate suggestion window with artwork, details, Play, and Another Pick. It does not add a Home shelf.
 - Alternate quality/source releases group under one title or episode. Choose a version before playing; season cards collapse in the episode chooser.
 - Correct Match resolves ambiguous names, years, types, and optional TMDB IDs without renaming files.

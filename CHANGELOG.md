@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.4 (build 12) — 2026-10-26
+
+- Add a Tonight's pick banner to Home with Play/Resume, Another, and Why?, ranked locally from mood, time of day, time budget, viewing history, feedback and rating. No AI request is made.
+- Add an "In the mood for" chip row with eight mood presets and a ranked mood shelf that respects current Home filters.
+- Add More Like This, Less Like This, and Not Tonight feedback to the banner and card menus. Feedback is stored as optional personal data, so earlier profiles still load; import-merge combines it.
+- Never suggest watched, disliked or dismissed titles, and never exceed an explicit time budget.
+
 ## 3.0.3 (build 11) — 2026-10-16
 
 - Group Settings into six visible, named tabs while preserving the shared save behavior.
