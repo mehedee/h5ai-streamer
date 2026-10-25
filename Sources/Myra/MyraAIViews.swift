@@ -169,7 +169,17 @@ struct MyraAIWorkspaceView: View {
                 ForEach(response.actions) { action in actionPreview(action) }
               }
               Text(response.sourceNote).font(.caption).foregroundStyle(.secondary)
-              Text("Generated with \(response.provider)").font(.caption).foregroundStyle(.secondary)
+              if response.path == .deterministicFallback {
+                Label(
+                  "Answered by Myra's fixed-rule recommender. The on-device model did not answer.",
+                  systemImage: "list.bullet.rectangle"
+                ).font(.caption).foregroundStyle(.secondary)
+                if let reason = response.pathReason {
+                  Text("Reason: \(reason)").font(.caption).foregroundStyle(.secondary)
+                }
+              } else {
+                Text("Generated with \(response.provider)").font(.caption).foregroundStyle(.secondary)
+              }
               if ai.canUndo {
                 Button("Undo Last Library Change") {
                   do {
@@ -178,6 +188,12 @@ struct MyraAIWorkspaceView: View {
                     localMessage = "Change undone."
                   } catch { localMessage = error.localizedDescription }
                 }
+              }
+            } else if ai.isBusy, !ai.partialSummary.isEmpty {
+              VStack(alignment: .leading, spacing: 8) {
+                Label("Writing on this Mac…", systemImage: "sparkles")
+                  .font(.caption).foregroundStyle(.secondary)
+                Text(ai.partialSummary).textSelection(.enabled)
               }
             } else {
               ContentUnavailableView(
@@ -192,7 +208,10 @@ struct MyraAIWorkspaceView: View {
         }.frame(minWidth: 430)
       }
     }.frame(minWidth: 840, idealWidth: 1040, minHeight: 600, idealHeight: 740)
-      .onAppear { ai.refreshAvailability() }
+      .onAppear {
+        ai.refreshAvailability()
+        ai.prewarm(feature: feature)
+      }
       .onDisappear {
         requestTask?.cancel()
         ai.cancel()
@@ -202,6 +221,7 @@ struct MyraAIWorkspaceView: View {
         localMessage = nil
         appliedActions.removeAll()
         result = nil
+        ai.prewarm(feature: feature)
       }
       .onChange(of: episodeID) { _, _ in
         subtitleText = nil
