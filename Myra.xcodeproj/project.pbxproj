@@ -103,6 +103,8 @@
 		1A7F869B20EBFC80216D4F03 /* TorrentLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 611770139B2493A3DA7527D2 /* TorrentLinks.swift */; };
 		B872EEDD9BD583A0D4854D42 /* SettingsRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36D7D6DF67AEF8514FBA1AF9 /* SettingsRows.swift */; };
 		3FC1B21E34EBDFB641834ACD /* DownloadsPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2D0BA3C055AD766DF64A3AD /* DownloadsPopover.swift */; };
+		F6230DC7251467450574210B /* AIPanelCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D730A0F5A0E3071F63F90C5 /* AIPanelCards.swift */; };
+		90F2D00508E831176340587C /* PlayerOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 467B383BAE96DC0E3070099E /* PlayerOverlay.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -213,6 +215,8 @@
 		611770139B2493A3DA7527D2 /* TorrentLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentLinks.swift; sourceTree = "<group>"; };
 		36D7D6DF67AEF8514FBA1AF9 /* SettingsRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pages/SettingsRows.swift; sourceTree = "<group>"; };
 		D2D0BA3C055AD766DF64A3AD /* DownloadsPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell/DownloadsPopover.swift; sourceTree = "<group>"; };
+		0D730A0F5A0E3071F63F90C5 /* AIPanelCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pages/AIPanelCards.swift; sourceTree = "<group>"; };
+		467B383BAE96DC0E3070099E /* PlayerOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pages/PlayerOverlay.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -258,6 +262,8 @@
 		C01000000000000000000002 /* Myra */ = {
 			isa = PBXGroup;
 			children = (
+				0D730A0F5A0E3071F63F90C5 /* AIPanelCards.swift */,
+				467B383BAE96DC0E3070099E /* PlayerOverlay.swift */,
 				36D7D6DF67AEF8514FBA1AF9 /* SettingsRows.swift */,
 				D2D0BA3C055AD766DF64A3AD /* DownloadsPopover.swift */,
 				08A837A345609DEA69ED1FC6 /* ArtworkDiskCache.swift */,
@@ -452,6 +458,8 @@ F44000000000000000000001, F44000000000000000000002,
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F6230DC7251467450574210B /* AIPanelCards.swift in Sources */,
+				90F2D00508E831176340587C /* PlayerOverlay.swift in Sources */,
 				B872EEDD9BD583A0D4854D42 /* SettingsRows.swift in Sources */,
 				3FC1B21E34EBDFB641834ACD /* DownloadsPopover.swift in Sources */,
 				18FC2194CEE7BA06D02129A6 /* ArtworkDiskCache.swift in Sources */,
