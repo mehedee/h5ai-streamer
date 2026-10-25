@@ -31,6 +31,8 @@ struct HomeView: View {
   @State private var tonightIndex = 0
   @State private var tonightHeadline = ""
   @State private var showingWhy = false
+  @State private var showingFilters = false
+  @State private var aiPrompt = ""
 
   @State private var prepared = HomeCatalogueProjection()
   @State private var preparedFilter: HomeCatalogueFilter?
@@ -63,7 +65,8 @@ struct HomeView: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 24) {
-        filters
+        if activeFilterCount > 0 { activeFilterSummary }
+        if HomeAskMyra.isQuestion(query) { askMyraRow }
         if let message = store.errorMessage {
           HStack {
             Image(systemName: "exclamationmark.triangle")
@@ -89,11 +92,12 @@ struct HomeView: View {
           if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             tonightSection
           }
-          shelf(
-            "Continue Watching", subtitle: "Resume unfinished movies and episodes",
-            titles: filtered.filter {
-              $0.resumeVersion != nil && !store.personal.watched.contains($0.id)
-            })
+          upNextRow(
+            filtered.filter { $0.resumeVersion != nil && !store.personal.watched.contains($0.id) }
+              .sorted {
+                ($0.resumeVersion?.lastPlayed ?? .distantPast)
+                  > ($1.resumeVersion?.lastPlayed ?? .distantPast)
+              })
           shelf(
             "Top Rated Movies", subtitle: "TMDB ratings weighted by vote count • minimum 20 votes",
             titles: ratedMovies)
@@ -128,7 +132,10 @@ struct HomeView: View {
         }
       }.padding(.horizontal, 28).padding(.bottom, 28)
     }
-    .contentMargins(.top, 36, for: .scrollContent)
+    .contentMargins(.top, 20, for: .scrollContent)
+    .searchable(text: $query, placement: .toolbar, prompt: "Search or ask Myra")
+    .toolbar { homeToolbar }
+
     .mediaHeaderScrollEffect()
     .task(id: filter) {
       let request = filter
@@ -186,7 +193,9 @@ struct HomeView: View {
       }
     }
     .sheet(isPresented: $showingAI, onDismiss: presentPendingChoice) {
-      MyraAIWorkspaceView(store: store, initialFeature: aiFeature, initialTitle: aiTitle) {
+      MyraAIWorkspaceView(
+        store: store, initialFeature: aiFeature, initialTitle: aiTitle, initialPrompt: aiPrompt
+      ) {
         start($0)
       }
     }
@@ -195,10 +204,10 @@ struct HomeView: View {
       EntertainmentTransferView(coordinator: coordinator, store: store)
     }
     .confirmationDialog(
-      "Clear Continue Watching?", isPresented: $confirmingClearContinueWatching,
+      "Clear Up Next?", isPresented: $confirmingClearContinueWatching,
       titleVisibility: .visible
     ) {
-      Button("Clear Continue Watching", role: .destructive) {
+      Button("Clear Up Next", role: .destructive) {
         Task { await store.clearContinueWatching() }
       }
       Button("Cancel", role: .cancel) {}
@@ -209,96 +218,156 @@ struct HomeView: View {
     }
   }
 
-  private var filters: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack(spacing: 12) {
-        HStack(spacing: 8) {
-          Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-          TextField("Find a movie or series", text: $query).textFieldStyle(.plain)
-            .accessibilityLabel("Search movies and series")
-          if !query.isEmpty {
-            Button {
-              query = ""
-            } label: {
-              Image(systemName: "xmark.circle.fill")
-            }
-            .buttonStyle(.plain).accessibilityLabel("Clear search")
-          }
-        }
-        .padding(.horizontal, 12).frame(minWidth: 180, minHeight: 38)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(.secondary.opacity(0.2)))
-        ViewThatFits(in: .horizontal) {
-          homeActions(compact: false)
-          homeActions(compact: true)
-        }
-      }
-      ScrollView(.horizontal) {
-        HStack(spacing: 12) {
-          filterPicker("Genre", selection: $genre, values: genres)
-          filterPicker("Language", selection: $language, values: languages)
-          filterPicker("Year", selection: $year, values: years)
-          filterPicker("Source", selection: $source, values: sources)
-          Picker("Rating", selection: $minimumRating) {
-            Text("Any rating").tag(0.0)
-            ForEach([5.0, 6, 7, 8, 9], id: \.self) { Text("\(Int($0))+ / 10").tag($0) }
-          }.labelsHidden().fixedSize()
-          Toggle("Hide watched", isOn: $hideWatched).toggleStyle(.checkbox).fixedSize()
-          Button("Reset") { resetFilters() }
-        }.padding(.vertical, 2)
-      }.scrollIndicators(.hidden)
-    }
+  private var activeFilterCount: Int {
+    [genre, language, year, source].filter { !$0.isEmpty }.count + (minimumRating > 0 ? 1 : 0)
+      + (hideWatched ? 1 : 0)
   }
 
-  private func homeActions(compact: Bool) -> some View {
+  private var activeFilterText: String {
+    var terms = [genre, language, year, source].filter { !$0.isEmpty }
+    if minimumRating > 0 { terms.append("Rated \(Int(minimumRating))+") }
+    if hideWatched { terms.append("Unwatched only") }
+    return "Filtered: " + terms.joined(separator: " · ")
+  }
+
+  private var activeFilterSummary: some View {
     HStack(spacing: 8) {
+      Image(systemName: "line.3.horizontal.decrease.circle.fill").foregroundStyle(.tint)
+      Text(activeFilterText).font(.callout).lineLimit(1)
+      Spacer()
+      Button("Edit Filters") { showingFilters = true }
+      Button("Clear Filters") { clearFilters() }
+    }
+    .padding(.horizontal, 12).padding(.vertical, 8)
+    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+  }
+
+  private var askMyraRow: some View {
+    Button {
+      askMyra()
+    } label: {
+      HStack(spacing: 10) {
+        Image(systemName: "sparkles").foregroundStyle(.tint)
+        Text("Ask Myra: “\(query)”").lineLimit(1)
+        Spacer()
+        Text("Opens Myra AI · nothing is sent until you ask").font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      .padding(.horizontal, 14).padding(.vertical, 10)
+      .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+  }
+
+  @ToolbarContentBuilder private var homeToolbar: some ToolbarContent {
+    ToolbarItemGroup(placement: .primaryAction) {
       Button {
         pickSomething()
       } label: {
-        actionLabel("Pick something", icon: "dice", compact: compact)
+        Label("Pick Something", systemImage: "dice").labelStyle(.titleAndIcon)
       }
       .help("Pick something to watch")
       .disabled(preparedFilter != filter || store.catalogue.isEmpty)
       Menu {
-        Button("Help Me Choose") { openAI(.smartPick) }
-        Button("Library Assistant") { openAI(.assistant) }
-        Button("Search in Natural Language") { openAI(.naturalSearch) }
-        Button("Plan Tonight") { openAI(.plan) }
-        Button("Viewing Insights") { openAI(.insights) }
+        Button("Recommend for Tonight…", systemImage: "wand.and.stars") { openAI(.smartPick) }
+        Button("Ask Myra…", systemImage: "bubble.left.and.text.bubble.right") {
+          openAI(.assistant)
+        }
+        Button("Make a Collection…", systemImage: "rectangle.stack.badge.plus") {
+          openAI(.collection)
+        }
       } label: {
-        actionLabel("Myra AI", icon: "sparkles", compact: compact)
+        Label("Myra AI", systemImage: "sparkles").labelStyle(.titleAndIcon)
       }
+      .help("Myra AI")
       Button {
-        Task { await store.enrich() }
+        showingFilters.toggle()
       } label: {
-        actionLabel(
-          store.isEnriching ? "Updating…" : "Update metadata", icon: "sparkles", compact: compact)
-      }.help("Update metadata").disabled(store.isEnriching || store.catalogue.isEmpty)
-      Menu {
-        Button("Manage collections") { showingCollections = true }
-        Button("Export / Import") { showingTransfer = true }
-      } label: {
-        actionLabel("Personal Library", icon: "person.crop.square", compact: compact)
+        Label(
+          activeFilterCount > 0 ? "Filters (\(activeFilterCount))" : "Filters",
+          systemImage: activeFilterCount > 0
+            ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
       }
-      .help("Personal Library")
+      .help(activeFilterCount > 0 ? "\(activeFilterCount) filters active" : "Show filters")
+      .popover(isPresented: $showingFilters, arrowEdge: .bottom) {
+        filterInspector.frame(width: 300).frame(minHeight: 360)
+      }
+      Menu {
+        Button(store.isEnriching ? "Updating Metadata…" : "Update Metadata") {
+          Task { await store.enrich() }
+        }
+        .disabled(store.isEnriching || store.catalogue.isEmpty)
+        Divider()
+        Button("Manage Collections…") { showingCollections = true }
+        Button("Export / Import…") { showingTransfer = true }
+      } label: {
+        Label("More", systemImage: "ellipsis.circle")
+      }
+      .help("More actions")
     }
   }
 
-  @ViewBuilder private func actionLabel(_ title: String, icon: String, compact: Bool) -> some View {
-    if compact {
-      Image(systemName: icon).accessibilityLabel(title)
-    } else {
-      Label(title, systemImage: icon)
+  private var filterInspector: some View {
+    Form {
+      Section {
+        filterPicker("Genre", selection: $genre, values: genres)
+        filterPicker("Language", selection: $language, values: languages)
+        filterPicker("Year", selection: $year, values: years)
+        filterPicker("Source", selection: $source, values: sources)
+        Picker("Rating", selection: $minimumRating) {
+          Text("Any Rating").tag(0.0)
+          ForEach([5.0, 6, 7, 8, 9], id: \.self) { Text("\(Int($0))+ / 10").tag($0) }
+        }
+        Toggle("Hide watched", isOn: $hideWatched)
+      } header: {
+        Text("Filters")
+      } footer: {
+        Text("Filters apply to every shelf and to Tonight's pick. Empty shelves are hidden.")
+          .font(.caption).foregroundStyle(.secondary)
+      }
+      Button("Clear All") { clearFilters() }.disabled(activeFilterCount == 0)
     }
+    .formStyle(.grouped)
   }
 
   private func filterPicker(_ label: String, selection: Binding<String>, values: [String])
     -> some View
   {
     Picker(label, selection: selection) {
-      Text("All \(label.lowercased())s").tag("")
+      Text("All").tag("")
       ForEach(values, id: \.self) { Text($0).tag($0) }
-    }.labelsHidden().frame(width: label == "Language" ? 125 : 110)
+    }
+  }
+
+  private func upNextRow(_ titles: [EntertainmentTitle]) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+      if !titles.isEmpty {
+        HStack {
+          Text("Up Next").font(.title2.bold())
+          Spacer()
+          Menu {
+            Button("Clear Up Next…", role: .destructive) { confirmingClearContinueWatching = true }
+              .disabled(store.isClearingContinueWatching)
+          } label: {
+            Image(systemName: "ellipsis.circle")
+          }
+          .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+          .accessibilityLabel("Up Next options")
+        }
+        ScrollView(.horizontal) {
+          LazyHStack(alignment: .top, spacing: 16) {
+            ForEach(titles.prefix(20)) { title in
+              UpNextTile(title: title, store: store, play: { start(title) }) {
+                details = title
+              }
+            }
+          }
+          .padding(.bottom, 4)
+        }
+        .scrollIndicators(.hidden)
+      }
+    }
   }
 
   @ViewBuilder
@@ -382,6 +451,7 @@ struct HomeView: View {
   private func openAI(_ feature: MyraAIFeature) {
     aiFeature = feature
     aiTitle = nil
+    aiPrompt = ""
     showingAI = true
   }
 
@@ -395,6 +465,22 @@ struct HomeView: View {
       pendingChoice = nil
       choosing = pending
     }
+  }
+
+  private func clearFilters() {
+    genre = ""
+    language = ""
+    year = ""
+    source = ""
+    minimumRating = 0
+    hideWatched = false
+  }
+
+  private func askMyra() {
+    aiFeature = .assistant
+    aiTitle = nil
+    aiPrompt = query
+    showingAI = true
   }
 
   private func resetFilters() {
@@ -442,50 +528,72 @@ struct HomeView: View {
     if let rating = title.metadata?.rating, rating > 0 {
       facts.append(String(format: "★ %.1f", rating))
     }
-    return HStack(alignment: .top, spacing: 20) {
+    return ZStack(alignment: .leading) {
       AsyncImage(url: title.posterURL) { image in
-        image.resizable().scaledToFill()
+        image.resizable().scaledToFill().blur(radius: 30).opacity(0.7)
       } placeholder: {
-        ZStack {
-          Rectangle().fill(.quaternary)
-          Image(systemName: title.kind == .series ? "tv" : "film").font(.largeTitle)
-            .foregroundStyle(.secondary)
-        }
+        LinearGradient(
+          colors: [Color.accentColor.opacity(0.45), Color.black.opacity(0.6)],
+          startPoint: .topLeading, endPoint: .bottomTrailing)
       }
-      .frame(width: 120, height: 170).clipShape(RoundedRectangle(cornerRadius: 10))
-      VStack(alignment: .leading, spacing: 8) {
-        Text("Tonight's pick · \(tonightHeadline)").textCase(.uppercase)
-          .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-        Text(title.displayName).font(.largeTitle.bold()).lineLimit(2)
-        Text(facts.joined(separator: " · ")).font(.callout).foregroundStyle(.secondary)
-        if let reason = pick.reasons.first {
-          Label(reason, systemImage: "sparkles").font(.callout)
-        }
-        HStack(spacing: 10) {
-          Button {
-            start(title)
-          } label: {
-            Label(title.resumeVersion == nil ? "Play" : "Resume", systemImage: "play.fill")
+      .frame(maxWidth: .infinity, maxHeight: .infinity).clipped()
+      LinearGradient(
+        colors: [.black.opacity(0.85), .black.opacity(0.45), .black.opacity(0.1)],
+        startPoint: .leading, endPoint: .trailing)
+      HStack(alignment: .center, spacing: 28) {
+        AsyncImage(url: title.posterURL) { image in
+          image.resizable().scaledToFill()
+        } placeholder: {
+          ZStack {
+            Rectangle().fill(.white.opacity(0.12))
+            Image(systemName: title.kind == .series ? "tv" : "film").font(.largeTitle)
+              .foregroundStyle(.white.opacity(0.7))
           }
-          .buttonStyle(.borderedProminent)
-          Button("Another") { tonightIndex += 1 }
-            .disabled(tonight.count < 2)
-          Button("Why?") { showingWhy = true }
-            .popover(isPresented: $showingWhy, arrowEdge: .bottom) { TonightWhyView(pick: pick) }
-          Menu {
-            RecommendationFeedbackItems(titleID: title.id, store: store)
-          } label: {
-            Image(systemName: "hand.thumbsup")
-          }
-          .menuIndicator(.hidden).fixedSize().help("Recommendation feedback")
-          .accessibilityLabel("Recommendation feedback")
         }
-        .controlSize(.large).padding(.top, 4)
+        .frame(width: 150, height: 222).clipShape(RoundedRectangle(cornerRadius: 12))
+        .shadow(color: .black.opacity(0.5), radius: 16, y: 8)
+        VStack(alignment: .leading, spacing: 10) {
+          Text("Tonight's pick · \(tonightHeadline)").textCase(.uppercase)
+            .font(.caption.weight(.bold)).foregroundStyle(.yellow)
+          Text(title.displayName).font(.system(size: 38, weight: .bold)).lineLimit(2)
+          Text(facts.joined(separator: " · ")).font(.callout).foregroundStyle(.white.opacity(0.8))
+          Label(
+            pick.reasons.prefix(2).joined(separator: " · "), systemImage: "sparkles"
+          )
+          .font(.callout).foregroundStyle(.white.opacity(0.92))
+          HStack(spacing: 10) {
+            Button {
+              start(title)
+            } label: {
+              Label(title.resumeVersion == nil ? "Play" : "Resume", systemImage: "play.fill")
+            }
+            .buttonStyle(BannerButtonStyle(prominent: true))
+            Button("Another") { tonightIndex += 1 }
+              .buttonStyle(BannerButtonStyle())
+              .disabled(tonight.count < 2)
+            Button("Why?") { showingWhy = true }
+              .buttonStyle(BannerButtonStyle())
+              .popover(isPresented: $showingWhy, arrowEdge: .bottom) { TonightWhyView(pick: pick) }
+            Menu {
+              RecommendationFeedbackItems(titleID: title.id, store: store)
+            } label: {
+              Image(systemName: "hand.thumbsup")
+            }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(.white.opacity(0.18), in: Capsule())
+            .help("Recommendation feedback").accessibilityLabel("Recommendation feedback")
+          }
+          .padding(.top, 6)
+        }
+        .foregroundStyle(.white)
+        Spacer(minLength: 0)
       }
-      Spacer(minLength: 0)
+      .padding(28)
     }
-    .padding(20)
-    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+    .frame(height: 290)
+    .clipShape(RoundedRectangle(cornerRadius: 18))
+    .environment(\.colorScheme, .dark)
   }
 
   private var moodChips: some View {
@@ -536,11 +644,12 @@ private struct EntertainmentCard: View {
   @ObservedObject var store: EntertainmentStore
   let play: () -> Void
   let details: () -> Void
+  @State private var hovering = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Button(action: details) {
-        ZStack(alignment: .bottomLeading) {
+    VStack(alignment: .leading, spacing: 6) {
+      ZStack(alignment: .bottomLeading) {
+        Button(action: details) {
           AsyncImage(url: title.posterURL) { image in
             image.resizable().scaledToFill()
           } placeholder: {
@@ -550,70 +659,201 @@ private struct EntertainmentCard: View {
                 .foregroundStyle(.secondary)
             }
           }
-          .frame(width: 170, height: 235).clipped()
-          if store.personal.watched.contains(title.id) {
-            Label("Watched", systemImage: "checkmark.circle.fill")
-              .font(.caption.bold()).padding(6).background(.regularMaterial)
-          }
-        }.clipShape(RoundedRectangle(cornerRadius: 12))
-      }.buttonStyle(.plain)
-      Text(title.displayName).font(.headline).lineLimit(2).frame(height: 38, alignment: .topLeading)
-      HStack {
-        Text(title.year ?? title.kind.rawValue.capitalized)
-        Spacer()
-        if let metadata = title.metadata {
-          Label(String(format: "%.1f", metadata.rating), systemImage: "star.fill").foregroundStyle(
-            .yellow
-          )
-          .help("TMDB rating from \(metadata.voteCount) votes")
+          .frame(width: 170, height: 255).clipped()
         }
-      }.font(.caption).foregroundStyle(.secondary)
-      Text(
-        Array(Set(title.versions.map { $0.media.categoryName })).sorted().joined(separator: ", ")
-      )
-      .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-      if let resume = title.resumeVersion, resume.duration > 0 {
-        ProgressView(value: min(1, resume.progressSeconds / resume.duration))
-        Text("Resume at \(Int(resume.progressSeconds / 60)) min").font(.caption2).foregroundStyle(
-          .secondary)
-      }
-      HStack {
-        Button(action: play) {
-          Label(title.resumeVersion == nil ? "Play" : "Resume", systemImage: "play.fill")
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title.displayName) details")
+        if let resume = title.resumeVersion, resume.duration > 0 {
+          ProgressView(value: min(1, resume.progressSeconds / resume.duration))
+            .tint(.white).padding(.horizontal, 10).padding(.bottom, 8)
         }
-        .buttonStyle(.borderedProminent)
-        Button {
-          store.toggleWatchlist(title.id)
-        } label: {
-          Image(
-            systemName: store.personal.watchlist.contains(title.id) ? "bookmark.fill" : "bookmark")
-        }.help("Toggle Watchlist")
-        Menu {
-          Button(store.personal.watched.contains(title.id) ? "Mark unwatched" : "Mark watched") {
-            store.toggleWatched(title.id)
-          }
-          Button("Details and versions", action: details)
-          Divider()
-          RecommendationFeedbackItems(titleID: title.id, store: store)
-          Divider()
-          if title.kind == .series {
-            Button(store.personal.followed.contains(title.id) ? "Unfollow series" : "Follow series")
-            { store.toggleFollow(title.id) }
-          }
-          if !store.personal.collections.isEmpty {
-            Menu("Collections") {
-              ForEach(store.personal.collections) { collection in
-                Button("\(collection.titleIDs.contains(title.id) ? "✓ " : "")\(collection.name)") {
-                  store.toggleCollection(titleID: title.id, collectionID: collection.id)
-                }
-              }
+        if hovering {
+          HStack {
+            Button(action: play) {
+              Image(systemName: "play.fill").font(.body.bold())
+                .frame(width: 36, height: 36)
+                .background(.white, in: Circle()).foregroundStyle(.black)
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel(title.resumeVersion == nil ? "Play" : "Resume")
+            Spacer()
+            Button {
+              store.toggleWatchlist(title.id)
+            } label: {
+              Image(
+                systemName: store.personal.watchlist.contains(title.id) ? "checkmark" : "plus"
+              )
+              .font(.body.bold()).frame(width: 30, height: 30)
+              .background(.ultraThinMaterial, in: Circle()).foregroundStyle(.white)
+            }
+            .buttonStyle(.plain)
+            .help("Toggle Watchlist")
           }
+          .padding(10)
+          .frame(maxHeight: .infinity, alignment: .bottom)
+          .background(
+            LinearGradient(
+              colors: [.clear, .black.opacity(0.65)], startPoint: .center, endPoint: .bottom)
+          )
+          .allowsHitTesting(true)
+        }
+      }
+      .frame(width: 170, height: 255)
+      .overlay(alignment: .topTrailing) {
+        if store.personal.watched.contains(title.id) {
+          Image(systemName: "checkmark.circle.fill").font(.title3)
+            .symbolRenderingMode(.palette).foregroundStyle(.white, Color.accentColor)
+            .padding(8).accessibilityLabel("Watched")
+        }
+      }
+      .clipShape(RoundedRectangle(cornerRadius: 12))
+      .overlay(
+        RoundedRectangle(cornerRadius: 12).stroke(
+          hovering ? Color.accentColor : .clear, lineWidth: 3)
+      )
+      .onHover { hovering = $0 }
+      .contextMenu { menuItems }
+      HStack(spacing: 4) {
+        Text(title.displayName).font(.callout.weight(.semibold)).lineLimit(1)
+        Spacer(minLength: 0)
+        Menu {
+          menuItems
         } label: {
           Image(systemName: "ellipsis")
-        }.menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: 22)
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .accessibilityLabel("More for \(title.displayName)")
       }
-    }.frame(width: 170)
+      HStack(spacing: 6) {
+        Text(title.year ?? title.kind.rawValue.capitalized)
+        if let metadata = title.metadata, metadata.rating > 0 {
+          Label(String(format: "%.1f", metadata.rating), systemImage: "star.fill")
+            .labelStyle(.titleAndIcon)
+            .help("TMDB rating from \(metadata.voteCount) votes")
+        }
+      }
+      .font(.caption).foregroundStyle(.secondary)
+    }
+    .frame(width: 170)
+  }
+
+  @ViewBuilder private var menuItems: some View {
+    Button(title.resumeVersion == nil ? "Play" : "Resume", action: play)
+    Button("Details and Versions", action: details)
+    Button(
+      store.personal.watchlist.contains(title.id) ? "Remove from Watchlist" : "Add to Watchlist"
+    ) { store.toggleWatchlist(title.id) }
+    Button(store.personal.watched.contains(title.id) ? "Mark Unwatched" : "Mark Watched") {
+      store.toggleWatched(title.id)
+    }
+    if title.kind == .series {
+      Button(store.personal.followed.contains(title.id) ? "Unfollow Series" : "Follow Series") {
+        store.toggleFollow(title.id)
+      }
+    }
+    if !store.personal.collections.isEmpty {
+      Menu("Collections") {
+        ForEach(store.personal.collections) { collection in
+          Button("\(collection.titleIDs.contains(title.id) ? "✓ " : "")\(collection.name)") {
+            store.toggleCollection(titleID: title.id, collectionID: collection.id)
+          }
+        }
+      }
+    }
+    Divider()
+    RecommendationFeedbackItems(titleID: title.id, store: store)
+  }
+}
+
+/// Wide 16:9 tile for Up Next, in the style of the TV app.
+private struct UpNextTile: View {
+  let title: EntertainmentTitle
+  @ObservedObject var store: EntertainmentStore
+  let play: () -> Void
+  let details: () -> Void
+  @State private var hovering = false
+
+  private var resume: EntertainmentVersion? { title.resumeVersion }
+  private var subtitle: String {
+    var parts: [String] = []
+    if let season = resume?.season, let episode = resume?.episode {
+      parts.append("S\(season), E\(episode)")
+    }
+    if let resume, resume.duration > 0 {
+      let left = max(0, Int((resume.duration - resume.progressSeconds) / 60))
+      parts.append("\(MyraRecommender.duration(left)) left")
+    }
+    return parts.isEmpty ? (title.year ?? "") : parts.joined(separator: " · ")
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Button(action: play) {
+        ZStack(alignment: .bottom) {
+          AsyncImage(url: title.posterURL) { image in
+            image.resizable().scaledToFill()
+          } placeholder: {
+            ZStack {
+              Rectangle().fill(.quaternary)
+              Image(systemName: title.kind == .series ? "tv" : "film").font(.largeTitle)
+                .foregroundStyle(.secondary)
+            }
+          }
+          .frame(width: 300, height: 169).clipped()
+          LinearGradient(
+            colors: [.clear, .black.opacity(0.6)], startPoint: .center, endPoint: .bottom)
+          if hovering {
+            Image(systemName: "play.fill").font(.title2.bold()).foregroundStyle(.black)
+              .frame(width: 48, height: 48).background(.white, in: Circle())
+              .frame(maxWidth: .infinity, maxHeight: .infinity)
+          }
+          if let resume, resume.duration > 0 {
+            ProgressView(value: min(1, resume.progressSeconds / resume.duration))
+              .tint(.white).padding(.horizontal, 12).padding(.bottom, 10)
+          }
+        }
+        .frame(width: 300, height: 169)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+          RoundedRectangle(cornerRadius: 12).stroke(
+            hovering ? Color.accentColor : .clear, lineWidth: 3))
+      }
+      .buttonStyle(.plain)
+      .onHover { hovering = $0 }
+      .accessibilityLabel("Resume \(title.displayName)")
+      .contextMenu {
+        Button("Resume", action: play)
+        Button("Details and Versions", action: details)
+        Button("Mark Watched") { store.toggleWatched(title.id) }
+      }
+      Text(title.displayName).font(.callout.weight(.semibold)).lineLimit(1)
+      Text(subtitle).font(.caption).foregroundStyle(.secondary)
+    }
+    .frame(width: 300)
+  }
+}
+
+private struct BannerButtonStyle: ButtonStyle {
+  var prominent = false
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .font(.body.weight(.semibold))
+      .padding(.horizontal, prominent ? 20 : 16).padding(.vertical, 9)
+      .foregroundStyle(prominent ? Color.black : Color.white)
+      .background(
+        prominent ? AnyShapeStyle(Color.white) : AnyShapeStyle(Color.white.opacity(0.18)),
+        in: Capsule()
+      )
+      .opacity(configuration.isPressed ? 0.75 : 1)
+      .contentShape(Capsule())
+  }
+}
+
+enum HomeAskMyra {
+  /// A multi-word sentence reads as a request rather than a title search.
+  static func isQuestion(_ query: String) -> Bool {
+    let words = query.split(whereSeparator: \.isWhitespace)
+    return words.count >= 3
   }
 }
 

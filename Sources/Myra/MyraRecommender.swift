@@ -195,6 +195,12 @@ enum MyraRecommender {
         score += 0.05
       }
       if title.resumeVersion != nil { reasons.insert("Continue where you left off", at: 0) }
+      if reasons.isEmpty {
+        reasons.append(
+          title.latestDiscovered > context.date.addingTimeInterval(-14 * 86_400)
+            ? "New in your library" : "Unwatched in your library")
+        if rating > 0.6 { reasons.append(String(format: "Rated %.1f", rating * 10)) }
+      }
       results.append(.init(title: title, score: score, reasons: Array(reasons.prefix(3))))
     }
     return Array(

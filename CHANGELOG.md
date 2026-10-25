@@ -2,6 +2,10 @@
 
 ## 3.0.4 (build 12) — 2026-10-26
 
+- Redesign Home in the style of Apple's media apps: search ("Search or ask Myra") and Pick Something, Myra AI, Filters and More move into the window toolbar; filters open in a popover with an active-filter summary and Clear Filters; the sidebar is grouped into Watch Now, Library (Sources, Downloaded), Torrents (Transfers) and Myra (Settings).
+- Show Tonight's pick as a wide backdrop banner that always gives a reason, and replace Continue Watching with an Up Next row of 16:9 tiles with progress and time left (Clear Up Next is in the row's menu).
+- Slim the title cards: poster, title, year and rating, with Play and Watchlist on hover and the full action list in the ⋯ and right-click menus.
+- Merge the Myra AI menu into Recommend for Tonight, Ask Myra and Make a Collection. A multi-word search offers "Ask Myra", which opens the assistant with that text; nothing is sent until you ask.
 - Add a Tonight's pick banner to Home with Play/Resume, Another, and Why?, ranked locally from mood, time of day, time budget, viewing history, feedback and rating. No AI request is made.
 - Add an "In the mood for" chip row with eight mood presets and a ranked mood shelf that respects current Home filters.
 - Add More Like This, Less Like This, and Not Tonight feedback to the banner and card menus. Feedback is stored as optional personal data, so earlier profiles still load; import-merge combines it.

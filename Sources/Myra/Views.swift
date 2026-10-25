@@ -10,6 +10,19 @@ private enum AppSection: String, CaseIterable, Identifiable {
   case settings = "Settings"
 
   var id: String { rawValue }
+  /// Sidebar grouping in the style of Apple's media apps.
+  static let groups: [(title: String, sections: [AppSection])] = [
+    ("Watch Now", [.home]), ("Library", [.library, .offline]), ("Torrents", [.torrents]),
+    ("Myra", [.settings]),
+  ]
+  var sidebarTitle: String {
+    switch self {
+    case .library: "Sources"
+    case .offline: "Downloaded"
+    case .torrents: "Transfers"
+    default: rawValue
+    }
+  }
   var icon: String {
     switch self {
     case .home: "house"
@@ -42,8 +55,14 @@ struct RootView: View {
         VStack(spacing: 0) {
           ZStack {
             NavigationSplitView {
-              List(AppSection.allCases, selection: $section) { item in
-                Label(item.rawValue, systemImage: item.icon).tag(item)
+              List(selection: $section) {
+                ForEach(AppSection.groups, id: \.title) { group in
+                  Section(group.title) {
+                    ForEach(group.sections) { item in
+                      Label(item.sidebarTitle, systemImage: item.icon).tag(item)
+                    }
+                  }
+                }
               }
               .scrollContentBackground(.hidden)
               .background(.thinMaterial)

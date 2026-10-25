@@ -25,10 +25,11 @@ struct MyraAIWorkspaceView: View {
 
   init(
     store: EntertainmentStore, initialFeature: MyraAIFeature = .smartPick,
-    initialTitle: EntertainmentTitle? = nil, ai: MyraAIStore = .shared,
-    play: @escaping (EntertainmentTitle) -> Void
+    initialTitle: EntertainmentTitle? = nil, initialPrompt: String = "",
+    ai: MyraAIStore = .shared, play: @escaping (EntertainmentTitle) -> Void
   ) {
     self.store = store
+    _prompt = State(initialValue: initialPrompt)
     self.ai = ai
     self.play = play
     _feature = State(initialValue: initialFeature)
