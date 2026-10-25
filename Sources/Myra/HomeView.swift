@@ -1,6 +1,53 @@
 import AppKit
 import SwiftUI
 
+/// Measurements taken from the approved Home section of the redesign preview.
+enum HomeLayout {
+  /// `.content` side padding.
+  static let pageInset: CGFloat = 26
+  /// `.hero` height and corner radius.
+  static let heroHeight: CGFloat = 290
+  static let heroRadius: CGFloat = 18
+  /// `.shelf` column width for posters, and `.shelf.wide` for Up Next stills.
+  static let posterWidth: CGFloat = 148
+  static let stillWidth: CGFloat = 260
+  /// Gap between shelf columns.
+  static let shelfSpacing: CGFloat = 16
+  /// Left inset so the first Up Next card is not clipped by the scroll edge.
+  static let upNextLeadingInset: CGFloat = 16
+  /// A shelf shows this many cards until "See All" expands it.
+  static let shelfPreviewLimit = 60
+
+  static func visibleCount(total: Int, expanded: Bool) -> Int {
+    expanded ? total : min(total, shelfPreviewLimit)
+  }
+
+  static func seeAllTitle(expanded: Bool) -> String {
+    expanded ? "Show Fewer" : "See All"
+  }
+
+  /// A filter chip shows its selected value once one is chosen, otherwise its label.
+  static func filterChipTitle(label: String, selection: String) -> String {
+    selection.isEmpty ? label : selection
+  }
+
+  static func backdropCandidates(_ title: EntertainmentTitle) -> [ArtworkCandidate] {
+    var candidates: [ArtworkCandidate] = []
+    if let backdrop = title.metadata?.backdropURL {
+      candidates.append(.image(.tmdbBackdrop, backdrop))
+    }
+    if let poster = title.posterURL {
+      candidates.append(.image(.tmdbPoster, poster))
+    }
+    return candidates.isEmpty ? [.titleCard] : candidates
+  }
+
+  static func posterCandidates(_ title: EntertainmentTitle) -> [ArtworkCandidate] {
+    guard let poster = title.posterURL else { return [.titleCard] }
+    return [.image(.tmdbPoster, poster)]
+  }
+}
+
 /// Discovery is read from the local catalogue; remote enrichment is a separate, bounded operation.
 struct HomeView: View {
   @ObservedObject var coordinator: AppCoordinator
@@ -31,7 +78,6 @@ struct HomeView: View {
   @State private var tonightIndex = 0
   @State private var tonightHeadline = ""
   @State private var showingWhy = false
-  @State private var showingFilters = false
   @State private var aiPrompt = ""
   @State private var showingCustomise = false
   @FocusState private var searchFocused: Bool
@@ -69,96 +115,103 @@ struct HomeView: View {
   var body: some View {
     ScrollView {
       ScrollViewReader { proxy in
-      VStack(alignment: .leading, spacing: 24) {
-        if activeFilterCount > 0 { activeFilterSummary }
-        if HomeAskMyra.isQuestion(query) { askMyraRow }
-        if let message = store.errorMessage {
-          HStack {
-            Image(systemName: "exclamationmark.triangle")
-            Text(message)
-            Spacer()
+        VStack(alignment: .leading, spacing: 0) {
+          if HomeAskMyra.isQuestion(query) { askMyraRow.padding(.top, 26) }
+          if let message = store.errorMessage {
+            HStack {
+              Image(systemName: "exclamationmark.triangle")
+              Text(message)
+              Spacer()
+            }
+            .font(.callout).foregroundStyle(.orange)
+            .padding(.top, 26)
           }
-          .font(.callout).foregroundStyle(.orange)
-        }
-        if store.catalogue.isEmpty {
-          ContentUnavailableView(
-            "Your entertainment home", systemImage: "film.stack",
-            description: Text(
-              "Add your directory sources in Library and refresh the index. Indexed videos will appear here."
+          if store.catalogue.isEmpty {
+            ContentUnavailableView(
+              "Your entertainment home", systemImage: "film.stack",
+              description: Text(
+                "Add your directory sources in Library and refresh the index. Indexed videos will appear here."
+              )
             )
-          )
-          .frame(minHeight: 280)
-        } else {
-          if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && filtered.isEmpty
-            && preparedFilter == filter
-          {
-            ContentUnavailableView.search(text: query)
-          }
-          if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            tonightSection
-          }
-          upNextRow(
-            filtered.filter { $0.resumeVersion != nil && !store.personal.watched.contains($0.id) }
-              .sorted {
-                ($0.resumeVersion?.lastPlayed ?? .distantPast)
-                  > ($1.resumeVersion?.lastPlayed ?? .distantPast)
-              })
-          if !automaticShelves.isEmpty {
+            .frame(minHeight: 280)
+          } else {
+            if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && filtered.isEmpty
+              && preparedFilter == filter
+            {
+              ContentUnavailableView.search(text: query)
+            }
+            if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+              tonightSection
+            }
+            upNextRow(
+              filtered.filter { $0.resumeVersion != nil && !store.personal.watched.contains($0.id) }
+                .sorted {
+                  ($0.resumeVersion?.lastPlayed ?? .distantPast)
+                    > ($1.resumeVersion?.lastPlayed ?? .distantPast)
+                })
             HomeBrowseByRow(
               shelves: automaticShelves,
               scrollTo: { id in withAnimation { proxy.scrollTo("shelf-\(id)", anchor: .top) } },
-              customise: { showingCustomise = true })
+              customise: { showingCustomise = true }
+            )
+            .padding(.top, 26)
             ForEach(automaticShelves) { shelf in
               self.shelf(
                 shelf.name, subtitle: shelf.subtitle, titles: shelf.titles,
                 anchor: "shelf-\(shelf.id)")
             }
-          }
-          shelf(
-            "Top Rated Movies", subtitle: "TMDB ratings weighted by vote count • minimum 20 votes",
-            titles: ratedMovies)
-          shelf(
-            "Series to Watch", subtitle: "Unwatched shows available in your sources",
-            titles: recommendedSeries)
-          shelf(
-            "Latest Releases", subtitle: "Release dates from matched titles in your index",
-            titles: latest)
-          shelf(
-            "Recently Added", subtitle: "First discovered by your local index",
-            titles: prepared.recent)
-          shelf("Watchlist", subtitle: "Saved for later", titles: watchlist)
-          if !store.newEpisodeIDs.isEmpty {
+            filterRow.padding(.top, 30)
             shelf(
-              "New Episodes", subtitle: "Newly indexed episodes of shows you follow",
-              titles: filtered.filter { $0.versions.contains { store.hasNewEpisode($0) } })
-          }
-          ForEach(store.personal.collections) { collection in
+              "Top Rated Movies", subtitle: "TMDB ratings weighted by vote count • minimum 20 votes",
+              titles: ratedMovies)
             shelf(
-              collection.name, subtitle: "Personal collection",
-              titles: filtered.filter { collection.titleIDs.contains($0.id) })
+              "Recently Added", subtitle: "First discovered by your local index",
+              titles: prepared.recent)
+            shelf(
+              "Series to Watch", subtitle: "Unwatched shows available in your sources",
+              titles: recommendedSeries)
+            shelf(
+              "Latest Releases", subtitle: "Release dates from matched titles in your index",
+              titles: latest)
+            shelf("Watchlist", subtitle: "Saved for later", titles: watchlist)
+            if !store.newEpisodeIDs.isEmpty {
+              shelf(
+                "New Episodes", subtitle: "Newly indexed episodes of shows you follow",
+                titles: filtered.filter { $0.versions.contains { store.hasNewEpisode($0) } })
+            }
+            ForEach(store.personal.collections) { collection in
+              shelf(
+                collection.name, subtitle: "Personal collection",
+                titles: filtered.filter { collection.titleIDs.contains($0.id) })
+            }
+            Text(
+              "Availability reflects the latest index, and a source may be offline. Metadata provided by TMDB. Myra uses the TMDB API but is not endorsed or certified by TMDB."
+            )
+            .font(.caption).foregroundStyle(.secondary)
+            .padding(.top, 30)
+            Link(
+              "TMDB attribution and information",
+              destination: URL(string: "https://www.themoviedb.org")!
+            ).font(.caption)
           }
-          Text(
-            "Availability reflects the latest index, and a source may be offline. Metadata provided by TMDB. Myra uses the TMDB API but is not endorsed or certified by TMDB."
-          )
-          .font(.caption).foregroundStyle(.secondary)
-          Link(
-            "TMDB attribution and information",
-            destination: URL(string: "https://www.themoviedb.org")!
-          ).font(.caption)
         }
+        .padding(.horizontal, HomeLayout.pageInset)
+        .padding(.bottom, 30)
       }
-      }
-      .padding(.horizontal, 28).padding(.bottom, 28)
     }
-    .contentMargins(.top, 20, for: .scrollContent)
+    .contentMargins(.top, 4, for: .scrollContent)
     .searchable(text: $query, placement: .toolbar, prompt: "Search or ask Myra")
     .modifier(SearchFocusIfAvailable(isFocused: $searchFocused))
     .onReceive(NotificationCenter.default.publisher(for: MyraCommand.notification)) { note in
-      // Find in the menu focuses the search field on this page.
-      if MyraCommand(notification: note) == .find { searchFocused = true }
+      // The shell's page actions post these commands; Home runs its own Pick and Ask actions.
+      guard let command = MyraCommand(notification: note) else { return }
+      switch command {
+      case .find: searchFocused = true
+      case .pickSomething: pickSomething()
+      case .askMyra: askMyra()
+      default: break
+      }
     }
-    .toolbar { homeToolbar }
-
     .mediaHeaderScrollEffect()
     .task(id: filter) {
       let request = filter
@@ -247,25 +300,6 @@ struct HomeView: View {
       + (hideWatched ? 1 : 0)
   }
 
-  private var activeFilterText: String {
-    var terms = [genre, language, year, source].filter { !$0.isEmpty }
-    if minimumRating > 0 { terms.append("Rated \(Int(minimumRating))+") }
-    if hideWatched { terms.append("Unwatched only") }
-    return "Filtered: " + terms.joined(separator: " · ")
-  }
-
-  private var activeFilterSummary: some View {
-    HStack(spacing: 8) {
-      Image(systemName: "line.3.horizontal.decrease.circle.fill").foregroundStyle(.tint)
-      Text(activeFilterText).font(.callout).lineLimit(1)
-      Spacer()
-      Button("Edit Filters") { showingFilters = true }
-      Button("Clear Filters") { clearFilters() }
-    }
-    .padding(.horizontal, 12).padding(.vertical, 8)
-    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
-  }
-
   private var askMyraRow: some View {
     Button {
       askMyra()
@@ -284,93 +318,86 @@ struct HomeView: View {
     .buttonStyle(.plain)
   }
 
-  @ToolbarContentBuilder private var homeToolbar: some ToolbarContent {
-    ToolbarItemGroup(placement: .primaryAction) {
-      Button {
-        pickSomething()
-      } label: {
-        Label("Pick Something", systemImage: "dice").labelStyle(.titleAndIcon)
-      }
-      .help("Pick something to watch")
-      .disabled(preparedFilter != filter || store.catalogue.isEmpty)
-      Menu {
-        Button("Recommend for Tonight…", systemImage: "wand.and.stars") { openAI(.smartPick) }
-        Button("Ask Myra…", systemImage: "bubble.left.and.text.bubble.right") {
-          openAI(.assistant)
+  /// Visible filter chips (`.chips` after the section head). Each chip opens its menu or toggles.
+  private var filterRow: some View {
+    HStack(alignment: .center, spacing: 8) {
+      FlowLayout(spacing: 6) {
+        filterMenu("Genre", selection: $genre, values: genres)
+        filterMenu("Language", selection: $language, values: languages)
+        filterMenu("Year", selection: $year, values: years)
+        filterMenu("Source", selection: $source, values: sources)
+        Menu {
+          Picker("Rating", selection: $minimumRating) {
+            Text("Any Rating").tag(0.0)
+            ForEach([5.0, 6, 7, 8, 9], id: \.self) { Text("\(Int($0))+ / 10").tag($0) }
+          }
+        } label: {
+          HomeChip(
+            title: minimumRating > 0 ? "\(Int(minimumRating))+ rating" : "Rating",
+            isOn: minimumRating > 0, caret: true)
         }
-        Button("Make a Collection…", systemImage: "rectangle.stack.badge.plus") {
-          openAI(.collection)
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .accessibilityLabel("Rating filter")
+        Button {
+          hideWatched.toggle()
+        } label: {
+          HomeChip(title: "Hide watched", isOn: hideWatched)
         }
-      } label: {
-        Label("Myra AI", systemImage: "sparkles").labelStyle(.titleAndIcon)
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(hideWatched ? .isSelected : [])
       }
-      .help("Myra AI")
-      Button {
-        showingFilters.toggle()
-      } label: {
-        Label(
-          activeFilterCount > 0 ? "Filters (\(activeFilterCount))" : "Filters",
-          systemImage: activeFilterCount > 0
-            ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-      }
-      .help(activeFilterCount > 0 ? "\(activeFilterCount) filters active" : "Show filters")
-      .popover(isPresented: $showingFilters, arrowEdge: .bottom) {
-        filterInspector.frame(width: 300).frame(minHeight: 360)
-      }
+      Spacer(minLength: 8)
+      Button("Reset") { clearFilters() }
+        .buttonStyle(.plain)
+        .foregroundStyle(accent.color)
+        .disabled(activeFilterCount == 0)
       Menu {
+        Button("Recommend for Tonight…") { openAI(.smartPick) }
+        Button("Ask Myra…") { openAI(.assistant) }
+        Button("Make a Collection…") { openAI(.collection) }
+        Divider()
         Button(store.isEnriching ? "Updating Metadata…" : "Update Metadata") {
           Task { await store.enrich() }
         }
         .disabled(store.isEnriching || store.catalogue.isEmpty)
-        Divider()
-        Button("Customise Home…") { showingCustomise = true }
         Button("Manage Collections…") { showingCollections = true }
         Button("Export / Import…") { showingTransfer = true }
       } label: {
-        Label("More", systemImage: "ellipsis.circle")
+        Image(systemName: "ellipsis.circle")
       }
+      .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
       .help("More actions")
+      .accessibilityLabel("More actions")
     }
+    .padding(.bottom, 4)
   }
 
-  private var filterInspector: some View {
-    Form {
-      Section {
-        filterPicker("Genre", selection: $genre, values: genres)
-        filterPicker("Language", selection: $language, values: languages)
-        filterPicker("Year", selection: $year, values: years)
-        filterPicker("Source", selection: $source, values: sources)
-        Picker("Rating", selection: $minimumRating) {
-          Text("Any Rating").tag(0.0)
-          ForEach([5.0, 6, 7, 8, 9], id: \.self) { Text("\(Int($0))+ / 10").tag($0) }
-        }
-        Toggle("Hide watched", isOn: $hideWatched)
-      } header: {
-        Text("Filters")
-      } footer: {
-        Text("Filters apply to every shelf and to Tonight's pick. Empty shelves are hidden.")
-          .font(.caption).foregroundStyle(.secondary)
-      }
-      Button("Clear All") { clearFilters() }.disabled(activeFilterCount == 0)
-    }
-    .formStyle(.grouped)
-  }
-
-  private func filterPicker(_ label: String, selection: Binding<String>, values: [String])
+  private func filterMenu(_ label: String, selection: Binding<String>, values: [String])
     -> some View
   {
-    Picker(label, selection: selection) {
-      Text("All").tag("")
-      ForEach(values, id: \.self) { Text($0).tag($0) }
+    Menu {
+      Picker(label, selection: selection) {
+        Text("All").tag("")
+        ForEach(values, id: \.self) { Text($0).tag($0) }
+      }
+    } label: {
+      HomeChip(
+        title: HomeLayout.filterChipTitle(label: label, selection: selection.wrappedValue),
+        isOn: !selection.wrappedValue.isEmpty, caret: true)
     }
+    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+    .accessibilityLabel("\(label) filter")
   }
 
+  /// Up Next: wide 16:9 stills with a 16pt inset at the leading edge.
   private func upNextRow(_ titles: [EntertainmentTitle]) -> some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: 0) {
       if !titles.isEmpty {
-        HStack {
-          Text("Up Next").font(.title2.bold())
-          Spacer()
+        SectionHeader(title: "Up Next", count: titles.count)
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+          Text("Resume unfinished movies and the next episode of shows you follow")
+            .font(.system(size: 12)).foregroundStyle(MyraColor.text2)
+          Spacer(minLength: 8)
           Menu {
             Button("Clear Up Next…", role: .destructive) { confirmingClearContinueWatching = true }
               .disabled(store.isClearingContinueWatching)
@@ -380,70 +407,61 @@ struct HomeView: View {
           .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
           .accessibilityLabel("Up Next options")
         }
+        .padding(.bottom, 12)
         ScrollView(.horizontal) {
-          LazyHStack(alignment: .top, spacing: 16) {
+          LazyHStack(alignment: .top, spacing: HomeLayout.shelfSpacing) {
             ForEach(titles.prefix(20)) { title in
-              UpNextTile(title: title, store: store, play: { start(title) }) {
+              HomeStillCard(title: title, store: store, play: { start(title) }) {
                 details = title
               }
+              .frame(width: HomeLayout.stillWidth)
             }
           }
-          .padding(.bottom, 4)
+          .padding(.leading, HomeLayout.upNextLeadingInset)
+          .padding(.bottom, 6)
         }
         .scrollIndicators(.hidden)
       }
     }
   }
 
+  /// A titled shelf of posters with its count and a "See All" control. Empty shelves are hidden.
   @ViewBuilder
   private func shelf(
     _ name: String, subtitle: String, titles: [EntertainmentTitle], anchor: String? = nil
   ) -> some View {
-    if HomeShelfPresentation.isVisible(count: titles.count, query: query) {
-      VStack(alignment: .leading, spacing: 10) {
-        HStack {
-          Text(name).font(.title2.bold())
-          Text("\(titles.count)").foregroundStyle(.secondary)
-          Spacer()
-          if name == "Continue Watching" {
-            Button("Clear") { confirmingClearContinueWatching = true }
-              .disabled(
-                store.isClearingContinueWatching
-                  || !store.catalogue.contains {
-                    $0.resumeVersion != nil && !store.personal.watched.contains($0.id)
-                  }
-              )
-              .accessibilityLabel("Clear Continue Watching")
+    if !titles.isEmpty {
+      let canExpand = titles.count > HomeLayout.shelfPreviewLimit
+      let expanded = canExpand && expandedShelves.contains(name)
+      let toggleExpanded: () -> Void = {
+        if !expandedShelves.insert(name).inserted { expandedShelves.remove(name) }
+      }
+      VStack(alignment: .leading, spacing: 0) {
+        // "See All" reveals the cards beyond the preview limit; shelves within it show every card.
+        SectionHeader(
+          title: name, count: titles.count,
+          actionTitle: HomeLayout.seeAllTitle(expanded: expanded),
+          action: toggleExpanded
+        )
+        Text(subtitle)
+          .font(.system(size: 12)).foregroundStyle(MyraColor.text2)
+          .padding(.bottom, 12)
+        ScrollView(.horizontal) {
+          LazyHStack(alignment: .top, spacing: HomeLayout.shelfSpacing) {
+            ForEach(
+              titles.prefix(HomeLayout.visibleCount(total: titles.count, expanded: expanded))
+            ) { title in
+              HomePosterCard(
+                title: title, store: store,
+                play: { start(title) }, details: { details = title })
+                .frame(width: HomeLayout.posterWidth, alignment: .topLeading)
+            }
           }
-          if titles.count > 60 {
-            Button(expandedShelves.contains(name) ? "Show fewer" : "Show all") {
-              if !expandedShelves.insert(name).inserted { expandedShelves.remove(name) }
-            }.font(.caption)
-          }
-        }
-        Text(subtitle).font(.caption).foregroundStyle(.secondary)
-        if titles.isEmpty {
-          Text(
-            name == "Top Rated Movies" || name == "Latest Releases"
-              ? "No matched titles for these filters. Add a TMDB key in Settings and update metadata."
-              : "No titles here yet. Try adjusting your filters."
-          )
-          .foregroundStyle(.secondary).padding(.vertical, 12)
-        } else {
-          ScrollView(.horizontal) {
-            LazyHStack(alignment: .top, spacing: 16) {
-              ForEach(expandedShelves.contains(name) ? titles : Array(titles.prefix(60))) { title in
-                EntertainmentCard(
-                  title: title, store: store,
-                  play: { start(title) }, details: { details = title })
-              }
-            }.padding(.bottom, 6)
-          }
+          .padding(.bottom, 6)
         }
       }
       .id(anchor ?? name)
     }
-
   }
 
   private func start(_ title: EntertainmentTitle, resume: Bool = true) {
@@ -535,17 +553,17 @@ struct HomeView: View {
   }
 
   @ViewBuilder private var tonightSection: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      if let pick = tonightPick { tonightBanner(pick) }
-      moodChips
-      if let mood {
-        shelf(
-          "\(mood.title) picks", subtitle: "Ranked on this Mac from your mood, time and history",
-          titles: tonight.filter { $0.id != tonightPick?.id }.map(\.title))
-      }
+    if let pick = tonightPick { tonightBanner(pick) }
+    moodRow.padding(.top, 18)
+    if let mood {
+      shelf(
+        "\(mood.title) picks", subtitle: "Ranked on this Mac from your mood, time and history",
+        titles: tonight.filter { $0.id != tonightPick?.id }.map(\.title)
+      )
     }
   }
 
+  /// The `.hero` banner: blurred artwork under a dark gradient, clipped to its own frame.
   private func tonightBanner(_ pick: MyraRecommendation) -> some View {
     let title = pick.title
     var facts = [title.year ?? title.kind.rawValue.capitalized]
@@ -556,88 +574,91 @@ struct HomeView: View {
     if let rating = title.metadata?.rating, rating > 0 {
       facts.append(String(format: "★ %.1f", rating))
     }
-    return ZStack(alignment: .leading) {
-      AsyncImage(url: title.posterURL) { image in
-        image.resizable().scaledToFill().blur(radius: 30).opacity(0.7)
-      } placeholder: {
-        LinearGradient(
-          colors: [accent.color.opacity(0.45), Color.black.opacity(0.6)],
-          startPoint: .topLeading, endPoint: .bottomTrailing)
-      }
-      .frame(maxWidth: .infinity, maxHeight: .infinity).clipped()
-      LinearGradient(
-        colors: [.black.opacity(0.85), .black.opacity(0.45), .black.opacity(0.1)],
-        startPoint: .leading, endPoint: .trailing)
-      HStack(alignment: .center, spacing: 28) {
-        AsyncImage(url: title.posterURL) { image in
-          image.resizable().scaledToFill()
-        } placeholder: {
-          ZStack {
-            Rectangle().fill(.white.opacity(0.12))
-            Image(systemName: title.kind == .series ? "tv" : "film").font(.largeTitle)
-              .foregroundStyle(.white.opacity(0.7))
-          }
-        }
-        .frame(width: 150, height: 222).clipShape(RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(0.5), radius: 16, y: 8)
-        VStack(alignment: .leading, spacing: 10) {
-          Text("Tonight's pick · \(tonightHeadline)").textCase(.uppercase)
-            .font(.caption.weight(.bold)).foregroundStyle(.yellow)
-          Text(title.displayName).font(.system(size: 38, weight: .bold)).lineLimit(2)
-          Text(facts.joined(separator: " · ")).font(.callout).foregroundStyle(.white.opacity(0.8))
-          Label(
-            pick.reasons.prefix(2).joined(separator: " · "), systemImage: "sparkles"
+    return ZStack(alignment: .bottomLeading) {
+      // The black base and the clip confine the blurred artwork to the banner frame.
+      Color.black
+        .overlay {
+          FallbackArtworkView(
+            title: title.displayName, candidates: HomeLayout.backdropCandidates(title)
           )
-          .font(.callout).foregroundStyle(.white.opacity(0.92))
-          HStack(spacing: 10) {
-            Button {
-              start(title)
-            } label: {
-              Label(title.resumeVersion == nil ? "Play" : "Resume", systemImage: "play.fill")
-            }
-            .buttonStyle(BannerButtonStyle(prominent: true))
-            Button("Another") { tonightIndex += 1 }
-              .buttonStyle(BannerButtonStyle())
-              .disabled(tonight.count < 2)
-            Button("Why?") { showingWhy = true }
-              .buttonStyle(BannerButtonStyle())
-              .popover(isPresented: $showingWhy, arrowEdge: .bottom) { TonightWhyView(pick: pick) }
-            Menu {
-              RecommendationFeedbackItems(titleID: title.id, store: store)
-            } label: {
-              Image(systemName: "hand.thumbsup")
-            }
-            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-            .padding(.horizontal, 12).padding(.vertical, 8)
-            .background(.white.opacity(0.18), in: Capsule())
-            .help("Recommendation feedback").accessibilityLabel("Recommendation feedback")
-          }
-          .padding(.top, 6)
+          .blur(radius: 30)
+          .opacity(0.7)
         }
-        .foregroundStyle(.white)
-        Spacer(minLength: 0)
+        .clipped()
+      LinearGradient(
+        stops: [
+          .init(color: .black.opacity(0.55), location: 0),
+          .init(color: .black.opacity(0.1), location: 0.65),
+        ],
+        startPoint: .leading, endPoint: .trailing)
+      VStack(alignment: .leading, spacing: 0) {
+        Text("Tonight's pick · \(tonightHeadline)")
+          .font(.system(size: 11, weight: .semibold))
+          .tracking(0.88)
+          .textCase(.uppercase)
+          .foregroundStyle(.white.opacity(0.85))
+        Text(title.displayName)
+          .font(.system(size: 32, weight: .bold))
+          .tracking(-0.64)
+          .lineLimit(2)
+          .padding(.top, 6).padding(.bottom, 4)
+        Text(facts.joined(separator: " · "))
+          .font(.system(size: 12))
+          .foregroundStyle(.white.opacity(0.9))
+          .padding(.bottom, 14)
+        Label(pick.reasons.prefix(2).joined(separator: " · "), systemImage: "sparkles")
+          .font(.system(size: 13))
+          .foregroundStyle(.white.opacity(0.9))
+          .padding(.bottom, 16)
+        HStack(spacing: 8) {
+          Button {
+            start(title)
+          } label: {
+            Label(title.resumeVersion == nil ? "Play" : "Resume", systemImage: "play.fill")
+          }
+          .buttonStyle(HeroButtonStyle(prominent: true))
+          Button("Another") { tonightIndex += 1 }
+            .buttonStyle(HeroButtonStyle())
+            .disabled(tonight.count < 2)
+          Button("Why?") { showingWhy = true }
+            .buttonStyle(HeroButtonStyle())
+            .popover(isPresented: $showingWhy, arrowEdge: .bottom) { TonightWhyView(pick: pick) }
+          Menu {
+            RecommendationFeedbackItems(titleID: title.id, store: store)
+          } label: {
+            Image(systemName: "hand.thumbsup")
+              .font(.system(size: 13))
+              .foregroundStyle(.white)
+              .padding(.horizontal, 12).padding(.vertical, 6)
+              .background(Color.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+              .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.25), lineWidth: 1))
+          }
+          .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+          .help("Recommendation feedback").accessibilityLabel("Recommendation feedback")
+        }
       }
-      .padding(28)
+      .foregroundStyle(.white)
+      .padding(.leading, 28).padding(.trailing, 28).padding(.bottom, 26)
+      .frame(maxWidth: .infinity, alignment: .leading)
     }
-    .frame(height: 290)
-    .clipShape(RoundedRectangle(cornerRadius: 18))
+    .frame(maxWidth: .infinity)
+    .frame(height: HomeLayout.heroHeight)
+    .clipShape(RoundedRectangle(cornerRadius: HomeLayout.heroRadius))
     .environment(\.colorScheme, .dark)
   }
 
-  private var moodChips: some View {
-    ScrollView(.horizontal, showsIndicators: false) {
-      HStack(spacing: 8) {
-        Text("In the mood for").font(.callout).foregroundStyle(.secondary)
+  /// `.moods`: the label, then the mood chips on one wrapping row. The selected chip uses the accent.
+  private var moodRow: some View {
+    HStack(alignment: .center, spacing: 10) {
+      Text("In the mood for")
+        .font(.system(size: 13)).foregroundStyle(MyraColor.text2)
+      FlowLayout(spacing: 6) {
         ForEach(MyraMood.allCases) { item in
           let selected = mood == item
           Button {
             mood = selected ? nil : item
           } label: {
-            Text(item.title).padding(.horizontal, 12).padding(.vertical, 5)
-              .foregroundStyle(selected ? Color.white : Color.primary)
-              .background(
-                selected ? AnyShapeStyle(accent.color) : AnyShapeStyle(.quaternary),
-                in: Capsule())
+            HomeChip(title: item.title, isOn: selected)
           }
           .buttonStyle(.plain)
           .accessibilityAddTraits(selected ? .isSelected : [])
@@ -647,7 +668,7 @@ struct HomeView: View {
   }
 
   private func pickSomething() {
-    guard preparedFilter == filter else { return }
+    guard preparedFilter == filter, !store.catalogue.isEmpty else { return }
     randomPick = EntertainmentPick.select(
       from: filtered, watched: store.personal.watched, excluding: randomPick?.id)
     randomPickFilters = filterDescription
@@ -667,103 +688,30 @@ struct HomeView: View {
   }
 }
 
-private struct EntertainmentCard: View {
+/// A poster card (`.card`): a click opens details, and the context menu holds the title actions.
+private struct HomePosterCard: View {
   let title: EntertainmentTitle
   @ObservedObject var store: EntertainmentStore
   let play: () -> Void
   let details: () -> Void
-  @State private var hovering = false
-  @Environment(\.myraAccent) private var accent
+
+  private var subtitle: String {
+    [title.year ?? title.kind.rawValue.capitalized, title.metadata?.genres.first]
+      .compactMap { $0 }
+      .joined(separator: " · ")
+  }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      ZStack(alignment: .bottomLeading) {
-        Button(action: details) {
-          AsyncImage(url: title.posterURL) { image in
-            image.resizable().scaledToFill()
-          } placeholder: {
-            ZStack {
-              Rectangle().fill(.quaternary)
-              Image(systemName: title.kind == .series ? "tv" : "film").font(.largeTitle)
-                .foregroundStyle(.secondary)
-            }
-          }
-          .frame(width: 170, height: 255).clipped()
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(title.displayName) details")
-        if let resume = title.resumeVersion, resume.duration > 0 {
-          ProgressView(value: min(1, resume.progressSeconds / resume.duration))
-            .tint(.white).padding(.horizontal, 10).padding(.bottom, 8)
-        }
-        if hovering {
-          HStack {
-            Button(action: play) {
-              Image(systemName: "play.fill").font(.body.bold())
-                .frame(width: 36, height: 36)
-                .background(.white, in: Circle()).foregroundStyle(.black)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(title.resumeVersion == nil ? "Play" : "Resume")
-            Spacer()
-            Button {
-              store.toggleWatchlist(title.id)
-            } label: {
-              Image(
-                systemName: store.personal.watchlist.contains(title.id) ? "checkmark" : "plus"
-              )
-              .font(.body.bold()).frame(width: 30, height: 30)
-              .background(.ultraThinMaterial, in: Circle()).foregroundStyle(.white)
-            }
-            .buttonStyle(.plain)
-            .help("Toggle Watchlist")
-          }
-          .padding(10)
-          .frame(maxHeight: .infinity, alignment: .bottom)
-          .background(
-            LinearGradient(
-              colors: [.clear, .black.opacity(0.65)], startPoint: .center, endPoint: .bottom)
-          )
-          .allowsHitTesting(true)
-        }
-      }
-      .frame(width: 170, height: 255)
-      .overlay(alignment: .topTrailing) {
-        if store.personal.watched.contains(title.id) {
-          Image(systemName: "checkmark.circle.fill").font(.title3)
-            .symbolRenderingMode(.palette).foregroundStyle(.white, accent.color)
-            .padding(8).accessibilityLabel("Watched")
-        }
-      }
-      .clipShape(RoundedRectangle(cornerRadius: 12))
-      .overlay(
-        RoundedRectangle(cornerRadius: 12).stroke(
-          hovering ? accent.color : .clear, lineWidth: 3)
-      )
-      .onHover { hovering = $0 }
-      .contextMenu { menuItems }
-      HStack(spacing: 4) {
-        Text(title.displayName).font(.callout.weight(.semibold)).lineLimit(1)
-        Spacer(minLength: 0)
-        Menu {
-          menuItems
-        } label: {
-          Image(systemName: "ellipsis")
-        }
-        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-        .accessibilityLabel("More for \(title.displayName)")
-      }
-      HStack(spacing: 6) {
-        Text(title.year ?? title.kind.rawValue.capitalized)
-        if let metadata = title.metadata, metadata.rating > 0 {
-          Label(String(format: "%.1f", metadata.rating), systemImage: "star.fill")
-            .labelStyle(.titleAndIcon)
-            .help("TMDB rating from \(metadata.voteCount) votes")
-        }
-      }
-      .font(.caption).foregroundStyle(.secondary)
+    Button(action: details) {
+      MediaCard(
+        title: title.displayName, subtitle: subtitle,
+        posterURL: title.posterURL,
+        rating: (title.metadata?.rating ?? 0) > 0 ? title.metadata?.rating : nil,
+        watched: store.personal.watched.contains(title.id))
     }
-    .frame(width: 170)
+    .buttonStyle(.plain)
+    .accessibilityLabel("\(title.displayName) details")
+    .contextMenu { menuItems }
   }
 
   @ViewBuilder private var menuItems: some View {
@@ -794,16 +742,19 @@ private struct EntertainmentCard: View {
   }
 }
 
-/// Wide 16:9 tile for Up Next, in the style of the TV app.
-private struct UpNextTile: View {
+/// A 16:9 still (`.still`) for Up Next: artwork, a play button on hover, a progress bar at the bottom.
+private struct HomeStillCard: View {
   let title: EntertainmentTitle
   @ObservedObject var store: EntertainmentStore
   let play: () -> Void
   let details: () -> Void
   @State private var hovering = false
-  @Environment(\.myraAccent) private var accent
 
   private var resume: EntertainmentVersion? { title.resumeVersion }
+  private var progress: Double? {
+    guard let resume, resume.duration > 0 else { return nil }
+    return min(1, resume.progressSeconds / resume.duration)
+  }
   private var subtitle: String {
     var parts: [String] = []
     if let season = resume?.season, let episode = resume?.episode {
@@ -819,34 +770,38 @@ private struct UpNextTile: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
       Button(action: play) {
-        ZStack(alignment: .bottom) {
-          AsyncImage(url: title.posterURL) { image in
-            image.resizable().scaledToFill()
-          } placeholder: {
-            ZStack {
-              Rectangle().fill(.quaternary)
-              Image(systemName: title.kind == .series ? "tv" : "film").font(.largeTitle)
-                .foregroundStyle(.secondary)
+        Color.clear
+          .aspectRatio(16.0 / 9.0, contentMode: .fit)
+          .overlay {
+            FallbackArtworkView(
+              title: title.displayName, candidates: HomeLayout.posterCandidates(title))
+          }
+          .overlay(alignment: .bottomLeading) {
+            VStack(alignment: .leading, spacing: 10) {
+              Text(title.displayName)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
+                .lineLimit(1)
+              if let progress {
+                ProgressBarView(fraction: progress, track: .white.opacity(0.3), tint: .white)
+              }
             }
+            .padding(.horizontal, 10)
+            .padding(.bottom, progress == nil ? 10 : 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
           }
-          .frame(width: 300, height: 169).clipped()
-          LinearGradient(
-            colors: [.clear, .black.opacity(0.6)], startPoint: .center, endPoint: .bottom)
-          if hovering {
-            Image(systemName: "play.fill").font(.title2.bold()).foregroundStyle(.black)
-              .frame(width: 48, height: 48).background(.white, in: Circle())
-              .frame(maxWidth: .infinity, maxHeight: .infinity)
+          .overlay {
+            Image(systemName: "play.fill")
+              .font(.system(size: 18))
+              .foregroundStyle(.white)
+              .frame(width: 44, height: 44)
+              .background(.ultraThinMaterial, in: Circle())
+              .background(Color.white.opacity(0.25), in: Circle())
+              .opacity(hovering ? 1 : 0)
           }
-          if let resume, resume.duration > 0 {
-            ProgressView(value: min(1, resume.progressSeconds / resume.duration))
-              .tint(.white).padding(.horizontal, 12).padding(.bottom, 10)
-          }
-        }
-        .frame(width: 300, height: 169)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(
-          RoundedRectangle(cornerRadius: 12).stroke(
-            hovering ? accent.color : .clear, lineWidth: 3))
+          .clipShape(RoundedRectangle(cornerRadius: 10))
+          .contentShape(RoundedRectangle(cornerRadius: 10))
       }
       .buttonStyle(.plain)
       .onHover { hovering = $0 }
@@ -856,26 +811,35 @@ private struct UpNextTile: View {
         Button("Details and Versions", action: details)
         Button("Mark Watched") { store.toggleWatched(title.id) }
       }
-      Text(title.displayName).font(.callout.weight(.semibold)).lineLimit(1)
-      Text(subtitle).font(.caption).foregroundStyle(.secondary)
+      Text(subtitle)
+        .font(.system(size: 12)).foregroundStyle(MyraColor.text2)
+        .lineLimit(1)
     }
-    .frame(width: 300)
   }
 }
 
-private struct BannerButtonStyle: ButtonStyle {
+/// The hero's buttons (`.btn`, `.btn.primary`, `.btn.glass`): 8pt radius, the accent when prominent.
+private struct HeroButtonStyle: ButtonStyle {
   var prominent = false
+  @Environment(\.myraAccent) private var accent
+
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
-      .font(.body.weight(.semibold))
-      .padding(.horizontal, prominent ? 20 : 16).padding(.vertical, 9)
-      .foregroundStyle(prominent ? Color.black : Color.white)
+      .font(.system(size: 13))
+      .padding(.horizontal, 12).padding(.vertical, 6)
+      .foregroundStyle(.white)
       .background(
-        prominent ? AnyShapeStyle(Color.white) : AnyShapeStyle(Color.white.opacity(0.18)),
-        in: Capsule()
+        RoundedRectangle(cornerRadius: 8).fill(
+          prominent
+            ? accent.color
+            : Color.white.opacity(configuration.isPressed ? 0.28 : 0.18))
       )
-      .opacity(configuration.isPressed ? 0.75 : 1)
-      .contentShape(Capsule())
+      .overlay {
+        if !prominent {
+          RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.25), lineWidth: 1)
+        }
+      }
+      .contentShape(RoundedRectangle(cornerRadius: 8))
   }
 }
 
