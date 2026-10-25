@@ -79,6 +79,28 @@
 		F47000000000000000000004 = {isa = PBXBuildFile; fileRef = F47000000000000000000003; };
 		F42000000000000000000011 = {isa = PBXBuildFile; fileRef = F41000000000000000000011; };
 		F42000000000000000000012 = {isa = PBXBuildFile; fileRef = F41000000000000000000012; };
+		18FC2194CEE7BA06D02129A6 /* ArtworkDiskCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A837A345609DEA69ED1FC6 /* ArtworkDiskCache.swift */; };
+		094AAE005AB70B6498839116 /* ArtworkLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BDEA59275F1A5B503DAAA68 /* ArtworkLoader.swift */; };
+		4A2728F226CAE14DF998AB62 /* ArtworkResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F260D95F83550692FDE91259 /* ArtworkResolver.swift */; };
+		D01C2DD1C3F69332F2C304EA /* FallbackArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A515D652C03E077603F122 /* FallbackArtworkView.swift */; };
+		D19C0074F71280D604E0152D /* TitleCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 069B90C41C18241C48390F34 /* TitleCardView.swift */; };
+		08FE5F4824D3383CC72A36C7 /* AccentPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0965B806FCA63BBFE6A3E7E4 /* AccentPalette.swift */; };
+		6C5C1D2C2CF4EACD4447B715 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32DB8757A564D68121832D6B /* Components.swift */; };
+		A89260D310A0C33D67C8B4D1 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35D406FF40AF21726DF5795A /* DesignTokens.swift */; };
+		2FFCAB0C4392A5DD24077365 /* HomeCategoryBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DE1FCD1814FA23F377CAA8A /* HomeCategoryBuilder.swift */; };
+		04E36BA0D7E254DA7EE53FBD /* HomeCategoryClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5BBD9DA8AFCA8965B18869C /* HomeCategoryClassifier.swift */; };
+		F74C1A63DF6F2D6D7CEB54C0 /* HomeCategoryModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2227F57017F5371F01BB8FE /* HomeCategoryModels.swift */; };
+		AE646D5DC345A97B6978D17E /* HomeCategoryPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 130F72F2E144C14CE78124C6 /* HomeCategoryPreferences.swift */; };
+		166B5CDA60C3C365324453CC /* MyraOnDeviceRecommender.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBAB813DF0AEF88262E22B3E /* MyraOnDeviceRecommender.swift */; };
+		83E4FB71CF6B0EBF8267C177 /* CustomiseHomeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 547F612DD48490FCB53DEA92 /* CustomiseHomeSheet.swift */; };
+		AE5D26103A06E90A71DEC9A7 /* DownloadsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4292AF263D64C31BC6A680FC /* DownloadsPage.swift */; };
+		4431F842311D0AB5020A8347 /* HomeCategoryShelves.swift in Sources */ = {isa = PBXBuildFile; fileRef = F930CAE7B29D2030E4BCF10D /* HomeCategoryShelves.swift */; };
+		4939FA4428AB0767C3830B02 /* PageCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA83F37454A12C441B5E3F04 /* PageCommands.swift */; };
+		1A1FB1DB67BF6BD988E791FF /* SettingsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1BC9D0E68C35A0D0E11EFCD /* SettingsPage.swift */; };
+		2F3715E897F658CEA3EF410A /* SourcesPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 104E5E60979C88BE2AAA1E6C /* SourcesPage.swift */; };
+		F3BB6CA427F836C0B6A334EA /* MyraCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDCE6F9B1D3B11440C2EBF4E /* MyraCommands.swift */; };
+		653192EF4F58F98E939617A9 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FDC256E3C373839A82D19FB /* RootView.swift */; };
+		1A7F869B20EBFC80216D4F03 /* TorrentLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 611770139B2493A3DA7527D2 /* TorrentLinks.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -165,6 +187,28 @@
 		F47000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyraRecommenderTests.swift; sourceTree = "<group>"; };
 		F41000000000000000000011 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyraAIProviderTests.swift; sourceTree = "<group>"; };
 		F41000000000000000000012 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyraAIActionTests.swift; sourceTree = "<group>"; };
+		08A837A345609DEA69ED1FC6 /* ArtworkDiskCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Artwork/ArtworkDiskCache.swift; sourceTree = "<group>"; };
+		2BDEA59275F1A5B503DAAA68 /* ArtworkLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Artwork/ArtworkLoader.swift; sourceTree = "<group>"; };
+		F260D95F83550692FDE91259 /* ArtworkResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Artwork/ArtworkResolver.swift; sourceTree = "<group>"; };
+		F5A515D652C03E077603F122 /* FallbackArtworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Artwork/FallbackArtworkView.swift; sourceTree = "<group>"; };
+		069B90C41C18241C48390F34 /* TitleCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Artwork/TitleCardView.swift; sourceTree = "<group>"; };
+		0965B806FCA63BBFE6A3E7E4 /* AccentPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem/AccentPalette.swift; sourceTree = "<group>"; };
+		32DB8757A564D68121832D6B /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem/Components.swift; sourceTree = "<group>"; };
+		35D406FF40AF21726DF5795A /* DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem/DesignTokens.swift; sourceTree = "<group>"; };
+		9DE1FCD1814FA23F377CAA8A /* HomeCategoryBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeCategories/HomeCategoryBuilder.swift; sourceTree = "<group>"; };
+		E5BBD9DA8AFCA8965B18869C /* HomeCategoryClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeCategories/HomeCategoryClassifier.swift; sourceTree = "<group>"; };
+		E2227F57017F5371F01BB8FE /* HomeCategoryModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeCategories/HomeCategoryModels.swift; sourceTree = "<group>"; };
+		130F72F2E144C14CE78124C6 /* HomeCategoryPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeCategories/HomeCategoryPreferences.swift; sourceTree = "<group>"; };
+		DBAB813DF0AEF88262E22B3E /* MyraOnDeviceRecommender.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyraOnDeviceRecommender.swift; sourceTree = "<group>"; };
+		547F612DD48490FCB53DEA92 /* CustomiseHomeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pages/CustomiseHomeSheet.swift; sourceTree = "<group>"; };
+		4292AF263D64C31BC6A680FC /* DownloadsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pages/DownloadsPage.swift; sourceTree = "<group>"; };
+		F930CAE7B29D2030E4BCF10D /* HomeCategoryShelves.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pages/HomeCategoryShelves.swift; sourceTree = "<group>"; };
+		BA83F37454A12C441B5E3F04 /* PageCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pages/PageCommands.swift; sourceTree = "<group>"; };
+		A1BC9D0E68C35A0D0E11EFCD /* SettingsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pages/SettingsPage.swift; sourceTree = "<group>"; };
+		104E5E60979C88BE2AAA1E6C /* SourcesPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pages/SourcesPage.swift; sourceTree = "<group>"; };
+		DDCE6F9B1D3B11440C2EBF4E /* MyraCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell/MyraCommands.swift; sourceTree = "<group>"; };
+		1FDC256E3C373839A82D19FB /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell/RootView.swift; sourceTree = "<group>"; };
+		611770139B2493A3DA7527D2 /* TorrentLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentLinks.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -210,6 +254,28 @@
 		C01000000000000000000002 /* Myra */ = {
 			isa = PBXGroup;
 			children = (
+				08A837A345609DEA69ED1FC6 /* ArtworkDiskCache.swift */,
+				2BDEA59275F1A5B503DAAA68 /* ArtworkLoader.swift */,
+				F260D95F83550692FDE91259 /* ArtworkResolver.swift */,
+				F5A515D652C03E077603F122 /* FallbackArtworkView.swift */,
+				069B90C41C18241C48390F34 /* TitleCardView.swift */,
+				0965B806FCA63BBFE6A3E7E4 /* AccentPalette.swift */,
+				32DB8757A564D68121832D6B /* Components.swift */,
+				35D406FF40AF21726DF5795A /* DesignTokens.swift */,
+				9DE1FCD1814FA23F377CAA8A /* HomeCategoryBuilder.swift */,
+				E5BBD9DA8AFCA8965B18869C /* HomeCategoryClassifier.swift */,
+				E2227F57017F5371F01BB8FE /* HomeCategoryModels.swift */,
+				130F72F2E144C14CE78124C6 /* HomeCategoryPreferences.swift */,
+				DBAB813DF0AEF88262E22B3E /* MyraOnDeviceRecommender.swift */,
+				547F612DD48490FCB53DEA92 /* CustomiseHomeSheet.swift */,
+				4292AF263D64C31BC6A680FC /* DownloadsPage.swift */,
+				F930CAE7B29D2030E4BCF10D /* HomeCategoryShelves.swift */,
+				BA83F37454A12C441B5E3F04 /* PageCommands.swift */,
+				A1BC9D0E68C35A0D0E11EFCD /* SettingsPage.swift */,
+				104E5E60979C88BE2AAA1E6C /* SourcesPage.swift */,
+				DDCE6F9B1D3B11440C2EBF4E /* MyraCommands.swift */,
+				1FDC256E3C373839A82D19FB /* RootView.swift */,
+				611770139B2493A3DA7527D2 /* TorrentLinks.swift */,
 				FB10000000000000000000001,
 				FB10000000000000000000002,
 				FB10000000000000000000003,
@@ -380,6 +446,28 @@ F44000000000000000000001, F44000000000000000000002,
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				18FC2194CEE7BA06D02129A6 /* ArtworkDiskCache.swift in Sources */,
+				094AAE005AB70B6498839116 /* ArtworkLoader.swift in Sources */,
+				4A2728F226CAE14DF998AB62 /* ArtworkResolver.swift in Sources */,
+				D01C2DD1C3F69332F2C304EA /* FallbackArtworkView.swift in Sources */,
+				D19C0074F71280D604E0152D /* TitleCardView.swift in Sources */,
+				08FE5F4824D3383CC72A36C7 /* AccentPalette.swift in Sources */,
+				6C5C1D2C2CF4EACD4447B715 /* Components.swift in Sources */,
+				A89260D310A0C33D67C8B4D1 /* DesignTokens.swift in Sources */,
+				2FFCAB0C4392A5DD24077365 /* HomeCategoryBuilder.swift in Sources */,
+				04E36BA0D7E254DA7EE53FBD /* HomeCategoryClassifier.swift in Sources */,
+				F74C1A63DF6F2D6D7CEB54C0 /* HomeCategoryModels.swift in Sources */,
+				AE646D5DC345A97B6978D17E /* HomeCategoryPreferences.swift in Sources */,
+				166B5CDA60C3C365324453CC /* MyraOnDeviceRecommender.swift in Sources */,
+				83E4FB71CF6B0EBF8267C177 /* CustomiseHomeSheet.swift in Sources */,
+				AE5D26103A06E90A71DEC9A7 /* DownloadsPage.swift in Sources */,
+				4431F842311D0AB5020A8347 /* HomeCategoryShelves.swift in Sources */,
+				4939FA4428AB0767C3830B02 /* PageCommands.swift in Sources */,
+				1A1FB1DB67BF6BD988E791FF /* SettingsPage.swift in Sources */,
+				2F3715E897F658CEA3EF410A /* SourcesPage.swift in Sources */,
+				F3BB6CA427F836C0B6A334EA /* MyraCommands.swift in Sources */,
+				653192EF4F58F98E939617A9 /* RootView.swift in Sources */,
+				1A7F869B20EBFC80216D4F03 /* TorrentLinks.swift in Sources */,
 				FB20000000000000000000001,
 				FB20000000000000000000002,
 				FB20000000000000000000003,
