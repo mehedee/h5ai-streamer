@@ -231,7 +231,7 @@ final class EntertainmentUISnapshotTests: XCTestCase {
       await coordinator.shutdown()
       return
     }
-    let labels = ["General", "Library", "Downloads", "Playback", "Discovery", "Torrents"]
+    let labels = ["General", "Library", "Downloads", "Playback", "AI", "Torrents"]
     XCTAssertEqual(tabs.segmentCount, labels.count)
     XCTAssertEqual((0..<tabs.segmentCount).map { tabs.label(forSegment: $0) }, labels)
     XCTAssertFalse(tabs.isHidden)
