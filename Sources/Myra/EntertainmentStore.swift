@@ -171,6 +171,7 @@ final class EntertainmentStore: ObservableObject {
           }
         }
         enrichmentIDs = prepared.enrichmentIDs
+        rebuildHomeCategories(from: values)
         catalogue = values
         Task(priority: .utility) { try? await index.saveSearchAliases(values) }
         discoverEpisodes()
@@ -238,6 +239,53 @@ final class EntertainmentStore: ObservableObject {
       }), let selected = title.versions.first(where: { $0.id == media.entry.url.absoluteString })
     else { return [] }
     return title.versions.filter { $0.season == selected.season && $0.episode == selected.episode }
+  }
+
+  /// Automatic Home shelves built from the whole catalogue after each refresh. Home applies filters on top.
+  private(set) var homeShelves: [HomeCategory] = []
+
+  /// Rebuilds the automatic shelves after a library refresh and makes sure the preferences record exists.
+  func rebuildHomeCategories(from titles: [EntertainmentTitle]) {
+    homeShelves = HomeCategoryBuilder.categories(for: titles)
+    if canWrite, personal.homeCategories == nil {
+      mutate { $0.homeCategories = HomeCategoryPreferences() }
+    }
+  }
+
+  /// Every automatic shelf in the user's arrangement, including hidden shelves for the Customise Home sheet.
+  func arrangedHomeCategories() -> [ArrangedHomeCategory] {
+    (personal.homeCategories ?? HomeCategoryPreferences()).arrange(homeShelves)
+  }
+
+  func setHomeCategoryHidden(_ id: String, _ isHidden: Bool) {
+    mutateHomeCategories { $0.setHidden(id, isHidden) }
+  }
+
+  func setHomeCategoryPinned(_ id: String, _ isPinned: Bool) {
+    mutateHomeCategories { $0.setPinned(id, isPinned) }
+  }
+
+  /// Moves one shelf to `destination` in the current arrangement, then stores the full order.
+  func moveHomeCategory(_ id: String, to destination: Int) {
+    let current = arrangedHomeCategories().map(\.id)
+    mutateHomeCategories { $0.move(id, to: destination, in: current) }
+  }
+
+  func setHomeCategoryOrder(_ ids: [String]) {
+    mutateHomeCategories { $0.setOrder(ids) }
+  }
+
+  /// Restores the default order, pins and visibility for every automatic shelf.
+  func resetHomeCategories() {
+    mutate { $0.homeCategories = HomeCategoryPreferences() }
+  }
+
+  private func mutateHomeCategories(_ change: (inout HomeCategoryPreferences) -> Void) {
+    mutate { data in
+      var preferences = data.homeCategories ?? HomeCategoryPreferences()
+      change(&preferences)
+      data.homeCategories = preferences
+    }
   }
 
   func toggleWatchlist(_ titleID: String) { mutate { Self.toggle(titleID, in: &$0.watchlist) } }

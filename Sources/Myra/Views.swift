@@ -11,6 +11,10 @@ struct LibraryView: View {
   @State private var sortField: DirectorySortField = .name
   @State private var sortAscending = true
   @State private var previousInspector: GlobalSearchResult?
+  @State private var showingSourceOverview = true
+  @AppStorage("myraSourceLayout") private var storedLayout = ""
+  @FocusState private var searchFieldFocused: Bool
+  @Environment(\.myraAccent) private var accent
 
   private var searchText: String {
     get { search.query }
@@ -23,25 +27,60 @@ struct LibraryView: View {
 
   var body: some View {
     GeometryReader { geometry in
-      HSplitView {
-        categoryList
-          .frame(minWidth: 190, idealWidth: 220, maxWidth: 280, maxHeight: .infinity)
-        browser
-          .frame(minWidth: 560, maxHeight: .infinity, alignment: .top)
+      Group {
+        if showingSourceOverviewPage {
+          SourcesOverviewPage(
+            coordinator: coordinator, open: openSource,
+            edit: { id in editingCategory = coordinator.categories.first { $0.id == id } },
+            delete: { id in deletingCategory = coordinator.categories.first { $0.id == id } },
+            addSource: { showingAddCategory = true })
+        } else {
+          browser
+        }
       }
-      .frame(width: geometry.size.width, height: geometry.size.height)
+      .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
     }
     .navigationTitle("Myra")
+    .onReceive(NotificationCenter.default.publisher(for: MyraCommand.notification)) { note in
+      switch MyraCommand(notification: note) {
+      case .find:
+        showingSourceOverview = false
+        searchFieldFocused = true
+      case .addSource:
+        showingAddCategory = true
+      default:
+        break
+      }
+    }
     .toolbar {
       ToolbarItem(placement: .principal) {
         searchAndNavigationBar
       }
       ToolbarItemGroup {
+        if !showingSourceOverviewPage {
+          Picker(
+            "Layout",
+            selection: Binding(
+              get: {
+                SourceBrowserLayout.resolve(stored: storedLayout, hasVideos: hasVideoEntries)
+              },
+              set: { storedLayout = $0.rawValue })
+          ) {
+            ForEach(SourceBrowserLayout.allCases) { layout in
+              Label(layout.title, systemImage: layout.symbol).tag(layout)
+            }
+          }
+          .pickerStyle(.segmented)
+          .help("Show files as a list or a grid")
+          .accessibilityLabel("File layout")
+          .disabled(showingGlobalResults)
+        }
         Button {
           showingAddCategory = true
         } label: {
-          Label("Add Category", systemImage: "plus")
+          Label("Add Source", systemImage: "plus")
         }
+        .help("Add a folder or network share as a source")
         Button {
           if showingGlobalResults {
             coordinator.startGlobalSearch(query: searchText)
@@ -77,7 +116,7 @@ struct LibraryView: View {
       }
     }
     .sheet(isPresented: $showingAddCategory) {
-      CategoryEditorSheet(title: "Add Category", initialName: "", initialURL: "") { name, url in
+      CategoryEditorSheet(title: "Add Source", initialName: "", initialURL: "") { name, url in
         await coordinator.addCategory(name: name, urlText: url)
       }
     }
@@ -105,11 +144,6 @@ struct LibraryView: View {
       }
     } message: {
       Text("Downloads already added to the queue will not be removed.")
-    }
-    .task {
-      if coordinator.currentCategory == nil, let first = coordinator.categories.first {
-        await coordinator.selectCategory(first)
-      }
     }
     .onChange(of: searchScope) { _, scope in
       if scope == .current {
@@ -140,51 +174,18 @@ struct LibraryView: View {
     }
   }
 
-  private var categoryList: some View {
-    VStack(spacing: 0) {
-      List(
-        selection: Binding(
-          get: { coordinator.currentCategory?.id },
-          set: { id in
-            guard let id, let category = coordinator.categories.first(where: { $0.id == id }) else {
-              return
-            }
-            if searchScope == .global { searchScope = .current }
-            Task { await coordinator.selectCategory(category) }
-          }
-        )
-      ) {
-        ForEach(coordinator.categories) { category in
-          Label(category.name, systemImage: "folder.fill")
-            .tag(category.id)
-            .contextMenu {
-              Button("Edit") { editingCategory = category }
-              Button("Delete", role: .destructive) { deletingCategory = category }
-            }
-        }
-      }
-      .scrollContentBackground(.hidden)
-      if coordinator.categories.isEmpty {
-        CategoryEmptyState { showingAddCategory = true }
-      }
-      Divider()
-      HStack {
-        Button {
-          showingAddCategory = true
-        } label: {
-          Image(systemName: "plus")
-        }
-        Button {
-          if let category = coordinator.currentCategory { editingCategory = category }
-        } label: {
-          Image(systemName: "pencil")
-        }
-        .disabled(coordinator.currentCategory == nil)
-        Spacer()
-      }
-      .buttonStyle(.borderless)
-      .padding(10)
-    }
+  private var showingSourceOverviewPage: Bool {
+    showingSourceOverview && !showingGlobalResults && !coordinator.categories.isEmpty
+  }
+
+  private var hasVideoEntries: Bool {
+    visibleEntries.contains(where: MediaFileType.isVideo)
+  }
+
+  private func openSource(_ id: UUID) {
+    guard let category = coordinator.categories.first(where: { $0.id == id }) else { return }
+    showingSourceOverview = false
+    Task { await coordinator.selectCategory(category) }
   }
 
   private var browser: some View {
@@ -232,7 +233,7 @@ struct LibraryView: View {
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
-        if visibleEntries.contains(where: MediaFileType.isVideo) {
+        if SourceBrowserLayout.resolve(stored: storedLayout, hasVideos: hasVideoEntries) == .grid {
           thumbnailGrid
         } else {
           directoryHeader
@@ -369,11 +370,17 @@ struct LibraryView: View {
   private var searchAndNavigationBar: some View {
     HStack(spacing: 6) {
       if !showingGlobalResults {
+        Button("Sources") { showingSourceOverview = true }
+          .help("Show all sources")
+          .accessibilityLabel("Back to Sources")
+        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
         Button {
           Task { await coordinator.navigateUp() }
         } label: {
           Image(systemName: "chevron.left")
         }
+        .help("Go to the parent folder")
+        .accessibilityLabel("Go to the parent folder")
         .disabled(
           coordinator.currentURL == coordinator.currentCategory?.rootURL?.standardizedDirectoryURL)
         if let category = coordinator.currentCategory, let root = category.rootURL {
@@ -386,7 +393,7 @@ struct LibraryView: View {
           Text("No category selected").foregroundStyle(.secondary)
         }
       } else {
-        Image(systemName: "network").foregroundStyle(.cyan)
+        Image(systemName: "network").foregroundStyle(accent.color)
         Text(coordinator.isGlobalSearching ? "Searching index…" : "All directories • Local index")
           .foregroundStyle(.secondary)
         if coordinator.isGlobalSearching {
@@ -425,6 +432,7 @@ struct LibraryView: View {
           text: Binding(get: { searchText }, set: { searchText = $0 })
         )
         .textFieldStyle(.plain)
+        .focused($searchFieldFocused)
         .onSubmit {
           if searchScope == .global { coordinator.startGlobalSearch(query: searchText) }
         }
@@ -533,6 +541,7 @@ struct LibraryView: View {
 private struct DirectoryEntryRow: View {
   let entry: DirectoryEntry
   let isSelected: Bool
+  @Environment(\.myraAccent) private var accent
   let toggle: () -> Void
   let copyURL: () -> Void
   let openInVLC: () -> Void
@@ -545,11 +554,11 @@ private struct DirectoryEntryRow: View {
     HStack(spacing: 10) {
       Button(action: toggle) {
         Image(systemName: isSelected ? "checkmark.square.fill" : "square")
-          .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+          .foregroundStyle(isSelected ? accent.color : .secondary)
       }
       .buttonStyle(.plain)
       Image(systemName: entry.kind == .folder ? "folder.fill" : "doc.fill")
-        .foregroundStyle(entry.kind == .folder ? .blue : .secondary)
+        .foregroundStyle(entry.kind == .folder ? accent.color : .secondary)
         .frame(width: 22)
       Button(action: open) {
         Text(entry.name)
@@ -625,6 +634,7 @@ private struct DirectoryThumbnailCard: View {
   let pushToTV: () -> Void
   let play: () -> Void
   let open: () -> Void
+  @Environment(\.myraAccent) private var accent
 
   var body: some View {
     VStack(alignment: .leading, spacing: 9) {
@@ -639,7 +649,7 @@ private struct DirectoryThumbnailCard: View {
         Button(action: toggle) {
           Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
             .font(.system(size: 20, weight: .semibold))
-            .foregroundStyle(isSelected ? Color.accentColor : .white)
+            .foregroundStyle(isSelected ? accent.color : .white)
             .shadow(radius: 3)
         }
         .buttonStyle(.plain)
@@ -699,7 +709,7 @@ private struct DirectoryThumbnailCard: View {
     .overlay {
       RoundedRectangle(cornerRadius: 14, style: .continuous)
         .stroke(
-          isSelected ? Color.accentColor : .secondary.opacity(0.18), lineWidth: isSelected ? 2 : 1)
+          isSelected ? accent.color : .secondary.opacity(0.18), lineWidth: isSelected ? 2 : 1)
     }
     .help(entry.name)
   }
@@ -707,29 +717,17 @@ private struct DirectoryThumbnailCard: View {
   @ViewBuilder private var thumbnail: some View {
     if entry.kind == .folder {
       ZStack {
-        Color.accentColor.opacity(0.12)
+        accent.color.opacity(0.12)
         Image(systemName: "folder.fill")
           .font(.system(size: 46))
-          .foregroundStyle(.blue)
-      }
-    } else if let artworkURL {
-      AsyncImage(url: artworkURL) { phase in
-        switch phase {
-        case .success(let image):
-          image.resizable().scaledToFill()
-        case .failure:
-          videoPlaceholder
-        case .empty:
-          ZStack {
-            videoPlaceholder
-            ProgressView()
-          }
-        @unknown default:
-          videoPlaceholder
-        }
+          .foregroundStyle(accent.color)
       }
     } else {
-      videoPlaceholder
+      // A local thumbnail first, then the generated title card, so a missing image never shows a blank tile.
+      FallbackArtworkView(
+        title: entry.name,
+        candidates: artworkURL.map { [ArtworkCandidate.image(.source, $0), .titleCard] }
+          ?? [.titleCard])
     }
   }
 
@@ -780,18 +778,19 @@ private struct CategoryEmptyState: View {
 }
 
 private struct LibraryWelcomeView: View {
+  @Environment(\.myraAccent) private var accent
   let addCategory: () -> Void
 
   var body: some View {
     VStack(spacing: 22) {
       ZStack {
         RoundedRectangle(cornerRadius: 22, style: .continuous)
-          .fill(Color.accentColor.opacity(0.12))
+          .fill(accent.color.opacity(0.12))
         RoundedRectangle(cornerRadius: 22, style: .continuous)
-          .stroke(Color.accentColor.opacity(0.22), lineWidth: 1)
+          .stroke(accent.color.opacity(0.22), lineWidth: 1)
         Image(systemName: "arrow.down.to.line.compact")
           .font(.system(size: 40, weight: .medium))
-          .foregroundStyle(Color.accentColor)
+          .foregroundStyle(accent.color)
       }
       .frame(width: 88, height: 88)
 
@@ -1128,137 +1127,6 @@ private struct DownloadControlButton: View {
     .buttonStyle(.bordered)
     .controlSize(.small)
     .foregroundStyle(role == .destructive ? Color.red : Color.primary)
-  }
-}
-
-private enum SettingsTab: String, CaseIterable {
-  case general, library, downloads, playback, discovery, torrents
-
-  var title: String {
-    switch self {
-    case .general: "General"
-    case .library: "Library"
-    case .downloads: "Downloads"
-    case .playback: "Playback"
-    case .discovery: "Discovery"
-    case .torrents: "Torrents"
-    }
-  }
-
-  var symbol: String {
-    switch self {
-    case .general: "gearshape"
-    case .library: "books.vertical"
-    case .downloads: "arrow.down.circle"
-    case .playback: "play.rectangle"
-    case .discovery: "sparkles"
-    case .torrents: "network"
-    }
-  }
-}
-
-struct SettingsView: View {
-  @ObservedObject var coordinator: AppCoordinator
-  @Bindable var settings: AppSettings
-  @State private var selectedTab: SettingsTab = .general
-
-  var body: some View {
-    TabView(selection: $selectedTab) {
-      Form {
-        MyraAppearanceSettingsSection()
-        UpdateSettingsSection(updater: coordinator.updater)
-      }
-      .formStyle(.grouped)
-      .tabItem { Label(SettingsTab.general.title, systemImage: SettingsTab.general.symbol) }
-      .tag(SettingsTab.general)
-
-      Form {
-        MediaSettingsSection(library: coordinator.library, refresh: coordinator.refreshLibraryIndex)
-      }
-      .formStyle(.grouped)
-      .tabItem { Label(SettingsTab.library.title, systemImage: SettingsTab.library.symbol) }
-      .tag(SettingsTab.library)
-
-      Form {
-        Section("Downloads") {
-          LabeledContent("Directory") {
-            HStack {
-              Text(settings.downloadDirectory).lineLimit(1).truncationMode(.middle)
-              Button("Choose…") { coordinator.chooseDownloadDirectory() }
-            }
-          }
-          LabeledContent("aria2c") {
-            TextField("Auto-detect", text: $settings.aria2PathOverride)
-              .textFieldStyle(.roundedBorder).frame(minWidth: 280)
-          }
-          Text("Leave the aria2 path empty to search PATH and common Homebrew locations.")
-            .font(.caption).foregroundStyle(.secondary)
-        }
-        Section("Advanced Performance") {
-          Stepper(
-            "Simultaneous files: \(settings.concurrentDownloads)",
-            value: $settings.concurrentDownloads, in: 1...20)
-          Stepper(
-            "Connections per file: \(settings.connectionsPerFile)",
-            value: $settings.connectionsPerFile, in: 1...16)
-          Stepper("Split count: \(settings.splitCount)", value: $settings.splitCount, in: 1...16)
-          Stepper("Retry count: \(settings.retryCount)", value: $settings.retryCount, in: 1...20)
-          LabeledContent("Per-file speed limit") {
-            TextField("0 (unlimited)", text: $settings.speedLimit).frame(width: 150)
-          }
-          Text("aria2 accepts values such as 0, 500K, or 10M.")
-            .font(.caption).foregroundStyle(.secondary)
-        }
-      }
-      .formStyle(.grouped)
-      .tabItem { Label(SettingsTab.downloads.title, systemImage: SettingsTab.downloads.symbol) }
-      .tag(SettingsTab.downloads)
-
-      Form {
-        SubtitleSettingsSection()
-      }
-      .formStyle(.grouped)
-      .tabItem { Label(SettingsTab.playback.title, systemImage: SettingsTab.playback.symbol) }
-      .tag(SettingsTab.playback)
-
-      Form {
-        DiscoverySettingsSection(store: coordinator.entertainment, player: coordinator.player)
-      }
-      .formStyle(.grouped)
-      .tabItem { Label(SettingsTab.discovery.title, systemImage: SettingsTab.discovery.symbol) }
-      .tag(SettingsTab.discovery)
-
-      Form {
-        TorrentSettingsSection(controller: coordinator.torrents)
-      }
-      .formStyle(.grouped)
-      .tabItem { Label(SettingsTab.torrents.title, systemImage: SettingsTab.torrents.symbol) }
-      .tag(SettingsTab.torrents)
-    }
-    .safeAreaInset(edge: .top, spacing: 0) {
-      Picker("Settings sections", selection: $selectedTab) {
-        ForEach(SettingsTab.allCases, id: \.self) { tab in
-          Text(tab.title).tag(tab)
-        }
-      }
-      .pickerStyle(.segmented)
-      .labelsHidden()
-      .accessibilityLabel("Settings sections")
-      .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 8)
-    }
-    .safeAreaInset(edge: .bottom, spacing: 0) {
-      VStack(spacing: 0) {
-        Divider()
-        HStack {
-          Text(selectedTab.title).foregroundStyle(.secondary)
-          Spacer()
-          Button("Save Settings") { coordinator.saveSettings() }
-            .buttonStyle(.borderedProminent)
-        }
-        .padding(.horizontal, 20).padding(.vertical, 12)
-      }
-    }
-    .navigationTitle("Settings")
   }
 }
 

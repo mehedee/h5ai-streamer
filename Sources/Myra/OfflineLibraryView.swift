@@ -1,13 +1,17 @@
 import AppKit
 import SwiftUI
 
-/// Groups completed local downloads, while keeping missing files visible and unplayable.
+/// The Downloads page: aria2 transfers in progress, and the completed library grouped by title.
+/// Completed local downloads keep missing files visible and unplayable.
 struct OfflineLibraryView: View {
   @ObservedObject var coordinator: AppCoordinator
   @ObservedObject private var store: EntertainmentStore
+  @State private var segment: DownloadsSegment = .defaultSegment
   @State private var query = ""
   @State private var hideMissing = false
   @State private var choosing: EntertainmentTitle?
+  @FocusState private var libraryFieldFocused: Bool
+  @Environment(\.myraAccent) private var accent
   private let localSourceID = UUID(uuidString: "A90C94FE-EA65-4EE6-AEBE-38F6AB267F73")!
 
   init(coordinator: AppCoordinator) {
@@ -46,15 +50,52 @@ struct OfflineLibraryView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
       HStack {
-        Label("Offline Library", systemImage: "externaldrive.fill").font(.largeTitle.bold())
+        Label("Downloads", systemImage: "arrow.down.circle.fill").font(.largeTitle.bold())
         Spacer()
-        Toggle("Hide missing", isOn: $hideMissing).toggleStyle(.checkbox)
+        if segment == .library {
+          Toggle("Hide missing", isOn: $hideMissing).toggleStyle(.checkbox)
+        }
       }
+      Picker("Downloads section", selection: $segment) {
+        ForEach(DownloadsSegment.allCases) { item in Text(item.title).tag(item) }
+      }
+      .pickerStyle(.segmented)
+      .labelsHidden()
+      .frame(maxWidth: 320)
+      .accessibilityLabel("Downloads section")
+      switch segment {
+      case .inProgress:
+        DownloadsInProgressView(coordinator: coordinator)
+      case .library:
+        libraryContent
+      }
+    }
+    .padding(24)
+    .onReceive(NotificationCenter.default.publisher(for: MyraCommand.notification)) { note in
+      // Find moves to the Library section and focuses its search field.
+      if MyraCommand(notification: note) == .find {
+        segment = .library
+        libraryFieldFocused = true
+      }
+    }
+    .sheet(item: $choosing) { title in
+      OfflineVersionChooser(title: title) { version in
+        choosing = nil
+        coordinator.playLocal(url: version.media.entry.url)
+      }
+    }
+  }
+
+  private var libraryContent: some View {
+    VStack(alignment: .leading, spacing: 16) {
       Text(
         "Completed video downloads, grouped by title. Playback works without your remote sources."
       )
       .foregroundStyle(.secondary)
-      TextField("Find a downloaded title", text: $query).textFieldStyle(.roundedBorder)
+      TextField("Find a downloaded title", text: $query)
+        .textFieldStyle(.roundedBorder)
+        .focused($libraryFieldFocused)
+        .accessibilityLabel("Find a downloaded title")
       if visible.isEmpty {
         ContentUnavailableView(
           "No downloaded videos", systemImage: "arrow.down.circle",
@@ -68,7 +109,7 @@ struct OfflineLibraryView: View {
               systemName: available.isEmpty
                 ? "exclamationmark.triangle" : (title.kind == .series ? "tv" : "film")
             )
-            .font(.title2).foregroundStyle(available.isEmpty ? Color.orange : .accentColor)
+            .font(.title2).foregroundStyle(available.isEmpty ? Color.orange : accent.color)
             VStack(alignment: .leading, spacing: 4) {
               Text(title.displayName).font(.headline).lineLimit(2)
               Text(
@@ -88,16 +129,11 @@ struct OfflineLibraryView: View {
               Label("Play", systemImage: "play.fill")
             }
             .buttonStyle(.borderedProminent).disabled(available.isEmpty)
+            .tint(accent.color)
           }.padding(.vertical, 8)
         }.scrollContentBackground(.hidden)
       }
-    }.padding(24)
-      .sheet(item: $choosing) { title in
-        OfflineVersionChooser(title: title) { version in
-          choosing = nil
-          coordinator.playLocal(url: version.media.entry.url)
-        }
-      }
+    }
   }
 
   private func exists(_ version: EntertainmentVersion) -> Bool {

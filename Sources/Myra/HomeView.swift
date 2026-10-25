@@ -33,6 +33,9 @@ struct HomeView: View {
   @State private var showingWhy = false
   @State private var showingFilters = false
   @State private var aiPrompt = ""
+  @State private var showingCustomise = false
+  @FocusState private var searchFocused: Bool
+  @Environment(\.myraAccent) private var accent
 
   @State private var prepared = HomeCatalogueProjection()
   @State private var preparedFilter: HomeCatalogueFilter?
@@ -51,6 +54,7 @@ struct HomeView: View {
   private var recommendedSeries: [EntertainmentTitle] { prepared.series }
   private var latest: [EntertainmentTitle] { prepared.latest }
   private var watchlist: [EntertainmentTitle] { prepared.watchlist }
+  private var automaticShelves: [HomeAutomaticShelf] { prepared.shelves }
 
   init(
     coordinator: AppCoordinator, store: EntertainmentStore, initialQuery: String = "",
@@ -64,6 +68,7 @@ struct HomeView: View {
 
   var body: some View {
     ScrollView {
+      ScrollViewReader { proxy in
       VStack(alignment: .leading, spacing: 24) {
         if activeFilterCount > 0 { activeFilterSummary }
         if HomeAskMyra.isQuestion(query) { askMyraRow }
@@ -98,6 +103,17 @@ struct HomeView: View {
                 ($0.resumeVersion?.lastPlayed ?? .distantPast)
                   > ($1.resumeVersion?.lastPlayed ?? .distantPast)
               })
+          if !automaticShelves.isEmpty {
+            HomeBrowseByRow(
+              shelves: automaticShelves,
+              scrollTo: { id in withAnimation { proxy.scrollTo("shelf-\(id)", anchor: .top) } },
+              customise: { showingCustomise = true })
+            ForEach(automaticShelves) { shelf in
+              self.shelf(
+                shelf.name, subtitle: shelf.subtitle, titles: shelf.titles,
+                anchor: "shelf-\(shelf.id)")
+            }
+          }
           shelf(
             "Top Rated Movies", subtitle: "TMDB ratings weighted by vote count • minimum 20 votes",
             titles: ratedMovies)
@@ -130,10 +146,17 @@ struct HomeView: View {
             destination: URL(string: "https://www.themoviedb.org")!
           ).font(.caption)
         }
-      }.padding(.horizontal, 28).padding(.bottom, 28)
+      }
+      }
+      .padding(.horizontal, 28).padding(.bottom, 28)
     }
     .contentMargins(.top, 20, for: .scrollContent)
     .searchable(text: $query, placement: .toolbar, prompt: "Search or ask Myra")
+    .modifier(SearchFocusIfAvailable(isFocused: $searchFocused))
+    .onReceive(NotificationCenter.default.publisher(for: MyraCommand.notification)) { note in
+      // Find in the menu focuses the search field on this page.
+      if MyraCommand(notification: note) == .find { searchFocused = true }
+    }
     .toolbar { homeToolbar }
 
     .mediaHeaderScrollEffect()
@@ -200,6 +223,7 @@ struct HomeView: View {
       }
     }
     .sheet(isPresented: $showingCollections) { EntertainmentCollectionsView(store: store) }
+    .sheet(isPresented: $showingCustomise) { CustomiseHomeSheet(store: store) }
     .sheet(isPresented: $showingTransfer) {
       EntertainmentTransferView(coordinator: coordinator, store: store)
     }
@@ -299,6 +323,7 @@ struct HomeView: View {
         }
         .disabled(store.isEnriching || store.catalogue.isEmpty)
         Divider()
+        Button("Customise Home…") { showingCustomise = true }
         Button("Manage Collections…") { showingCollections = true }
         Button("Export / Import…") { showingTransfer = true }
       } label: {
@@ -371,7 +396,9 @@ struct HomeView: View {
   }
 
   @ViewBuilder
-  private func shelf(_ name: String, subtitle: String, titles: [EntertainmentTitle]) -> some View {
+  private func shelf(
+    _ name: String, subtitle: String, titles: [EntertainmentTitle], anchor: String? = nil
+  ) -> some View {
     if HomeShelfPresentation.isVisible(count: titles.count, query: query) {
       VStack(alignment: .leading, spacing: 10) {
         HStack {
@@ -414,6 +441,7 @@ struct HomeView: View {
           }
         }
       }
+      .id(anchor ?? name)
     }
 
   }
@@ -533,7 +561,7 @@ struct HomeView: View {
         image.resizable().scaledToFill().blur(radius: 30).opacity(0.7)
       } placeholder: {
         LinearGradient(
-          colors: [Color.accentColor.opacity(0.45), Color.black.opacity(0.6)],
+          colors: [accent.color.opacity(0.45), Color.black.opacity(0.6)],
           startPoint: .topLeading, endPoint: .bottomTrailing)
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity).clipped()
@@ -608,7 +636,7 @@ struct HomeView: View {
             Text(item.title).padding(.horizontal, 12).padding(.vertical, 5)
               .foregroundStyle(selected ? Color.white : Color.primary)
               .background(
-                selected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quaternary),
+                selected ? AnyShapeStyle(accent.color) : AnyShapeStyle(.quaternary),
                 in: Capsule())
           }
           .buttonStyle(.plain)
@@ -645,6 +673,7 @@ private struct EntertainmentCard: View {
   let play: () -> Void
   let details: () -> Void
   @State private var hovering = false
+  @Environment(\.myraAccent) private var accent
 
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
@@ -702,14 +731,14 @@ private struct EntertainmentCard: View {
       .overlay(alignment: .topTrailing) {
         if store.personal.watched.contains(title.id) {
           Image(systemName: "checkmark.circle.fill").font(.title3)
-            .symbolRenderingMode(.palette).foregroundStyle(.white, Color.accentColor)
+            .symbolRenderingMode(.palette).foregroundStyle(.white, accent.color)
             .padding(8).accessibilityLabel("Watched")
         }
       }
       .clipShape(RoundedRectangle(cornerRadius: 12))
       .overlay(
         RoundedRectangle(cornerRadius: 12).stroke(
-          hovering ? Color.accentColor : .clear, lineWidth: 3)
+          hovering ? accent.color : .clear, lineWidth: 3)
       )
       .onHover { hovering = $0 }
       .contextMenu { menuItems }
@@ -772,6 +801,7 @@ private struct UpNextTile: View {
   let play: () -> Void
   let details: () -> Void
   @State private var hovering = false
+  @Environment(\.myraAccent) private var accent
 
   private var resume: EntertainmentVersion? { title.resumeVersion }
   private var subtitle: String {
@@ -816,7 +846,7 @@ private struct UpNextTile: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
           RoundedRectangle(cornerRadius: 12).stroke(
-            hovering ? Color.accentColor : .clear, lineWidth: 3))
+            hovering ? accent.color : .clear, lineWidth: 3))
       }
       .buttonStyle(.plain)
       .onHover { hovering = $0 }
@@ -941,6 +971,8 @@ struct HomeCatalogueProjection: Sendable {
   var languages: [String] = []
   var years: [String] = []
   var sources: [String] = []
+  /// Automatic shelves built from the filtered titles, in the user's arrangement, hidden shelves removed.
+  var shelves: [HomeAutomaticShelf] = []
 }
 
 actor HomeProjectionWorker {
@@ -993,6 +1025,8 @@ actor HomeProjectionWorker {
     result.languages = languages.sorted()
     result.years = years.sorted(by: >)
     result.sources = sources.sorted()
+    result.shelves = HomeShelfBuilder.shelves(
+      from: result.filtered, preferences: personal.homeCategories ?? HomeCategoryPreferences())
     return result
   }
 }
