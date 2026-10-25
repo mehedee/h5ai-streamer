@@ -1,8 +1,8 @@
 {
   "fill": {
     "linear-gradient": [
-      "srgb:0.145,0.165,0.38,1",
-      "srgb:0.28,0.14,0.5,1"
+      "srgb:1.0000,0.5412,0.2980,1",
+      "srgb:0.6078,0.1137,0.3608,1"
     ],
     "orientation": {
       "start": {
@@ -20,8 +20,8 @@
       "appearance": "dark",
       "value": {
         "linear-gradient": [
-          "srgb:0.055,0.065,0.13,1",
-          "srgb:0.12,0.08,0.23,1"
+          "srgb:0.2275,0.1216,0.1804,1",
+          "srgb:0.0706,0.0314,0.0627,1"
         ],
         "orientation": {
           "start": {
@@ -43,14 +43,14 @@
     {
       "layers": [
         {
-          "image-name": "halo.svg",
-          "name": "Ambient halo",
+          "image-name": "secondary.svg",
+          "name": "Spotlight beam",
           "glass": true,
-          "opacity": 0.3
+          "opacity": 0.5
         },
         {
-          "image-name": "mark.svg",
-          "name": "Myra Orbit",
+          "image-name": "primary.svg",
+          "name": "Play mark",
           "glass": true,
           "fill": "automatic"
         }
