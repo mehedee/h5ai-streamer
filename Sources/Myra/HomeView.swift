@@ -436,8 +436,12 @@ struct HomeView: View {
     let title = pick.title
     var facts = [title.year ?? title.kind.rawValue.capitalized]
     facts += (title.metadata?.genres ?? []).prefix(2)
-    if let minutes = MyraAIContext.runtime(title) { facts.append(MyraRecommender.duration(minutes)) }
-    if let rating = title.metadata?.rating, rating > 0 { facts.append(String(format: "★ %.1f", rating)) }
+    if let minutes = MyraAIContext.runtime(title) {
+      facts.append(MyraRecommender.duration(minutes))
+    }
+    if let rating = title.metadata?.rating, rating > 0 {
+      facts.append(String(format: "★ %.1f", rating))
+    }
     return HStack(alignment: .top, spacing: 20) {
       AsyncImage(url: title.posterURL) { image in
         image.resizable().scaledToFill()

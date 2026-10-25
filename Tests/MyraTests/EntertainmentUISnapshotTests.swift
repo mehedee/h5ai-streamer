@@ -121,14 +121,16 @@ final class EntertainmentUISnapshotTests: XCTestCase {
       HomeView(coordinator: coordinator, store: coordinator.entertainment), width: 1200,
       height: 1100, name: "home-wide.png")
     try await renderHosted(
-      HomeView(coordinator: coordinator, store: coordinator.entertainment, initialMood: .mindBending),
+      HomeView(
+        coordinator: coordinator, store: coordinator.entertainment, initialMood: .mindBending),
       width: 1200, height: 1100, name: "home-tonight-mood.png")
     let tonight = try XCTUnwrap(
       MyraRecommender.recommend(
         titles: coordinator.entertainment.catalogue, personal: coordinator.entertainment.personal,
         context: MyraViewingContext(mood: .mindBending)
       ).first)
-    try await renderHosted(TonightWhyView(pick: tonight), width: 300, height: 200, name: "tonight-why.png")
+    try await renderHosted(
+      TonightWhyView(pick: tonight), width: 300, height: 200, name: "tonight-why.png")
     coordinator.entertainment.react(.like, to: tonight.id)
     try await renderHosted(
       VStack(alignment: .leading, spacing: 10) {

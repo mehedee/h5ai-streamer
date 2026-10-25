@@ -34,7 +34,8 @@ final class MyraRecommenderTests: XCTestCase {
 
   private var library: [EntertainmentTitle] {
     [
-      title("paddington", genres: ["Family", "Comedy"], runtime: 95, overview: "A heartwarming bear"),
+      title(
+        "paddington", genres: ["Family", "Comedy"], runtime: 95, overview: "A heartwarming bear"),
       title("hereditary", genres: ["Horror", "Drama"], runtime: 127, rating: 7.3),
       title("arrival", genres: ["Science Fiction", "Drama"], runtime: 116, rating: 8.2),
       title("oppenheimer", genres: ["Drama", "History"], runtime: 180, rating: 8.4),
@@ -57,7 +58,8 @@ final class MyraRecommenderTests: XCTestCase {
   }
 
   func testExplicitBudgetIsNeverExceededAndUnknownRuntimesAreExcluded() {
-    let context = MyraViewingContext(date: date(hour: 15), calendar: calendar, availableMinutes: 120)
+    let context = MyraViewingContext(
+      date: date(hour: 15), calendar: calendar, availableMinutes: 120)
     let results = MyraRecommender.recommend(
       titles: library, personal: .init(), context: context, limit: 20)
     XCTAssertFalse(results.isEmpty)

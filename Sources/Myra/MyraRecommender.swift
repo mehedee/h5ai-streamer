@@ -238,7 +238,8 @@ enum MyraRecommender {
     guard let mood = context.mood else { return 0.5 }
     if mood == .short { return 0.7 }
     let preferred = mood.preferredGenres
-    let genreMatch = preferred.isEmpty ? 0 : min(Double(genres.intersection(preferred).count), 2) / 2
+    let genreMatch =
+      preferred.isEmpty ? 0 : min(Double(genres.intersection(preferred).count), 2) / 2
     let tags = context.moodTags[title.id] ?? []
     let tagMatch =
       tags.contains { $0 == mood.rawValue.lowercased() || $0 == mood.title.lowercased() } ? 1.0 : 0
