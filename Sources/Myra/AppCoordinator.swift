@@ -145,6 +145,9 @@ final class AppCoordinator: ObservableObject {
       }
       torrents.closePlayer = { [weak self] in self?.player.close() }
       torrents.playerAutoplay = { [weak self] in self?.player.personalState.autoplay ?? false }
+      torrents.downloadDirectory = { [weak self] in
+        self?.settings.map { URL(fileURLWithPath: $0.downloadDirectory, isDirectory: true) }
+      }
       Task { await torrents.load() }
       library.refresh(
         roots: searchRoots, onlyIfDue: true,
