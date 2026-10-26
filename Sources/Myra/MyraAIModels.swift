@@ -290,6 +290,8 @@ enum MyraAIError: LocalizedError {
   /// On-device failures, each with its own user-facing message (see MyraAppleModelErrors).
   case contextOverflow, decodingFailure, guardrail, refusal, assetsUnavailable, busy
   case unsupportedSchema, timedOut
+  /// A recommendation answer that chose no titles.
+  case noPicks
   var isRetryableWithLessContext: Bool {
     switch self {
     case .contextOverflow, .decodingFailure, .invalidResponse: true
@@ -314,6 +316,7 @@ enum MyraAIError: LocalizedError {
       "Myra's result format is not supported by the on-device model on this Mac. Use a cloud provider or update macOS."
     case .timedOut:
       "The on-device model did not finish within 20 seconds. Myra stopped the request; try again or narrow the request."
+    case .noPicks: "The on-device model answered without choosing any titles."
     case .missingKey: "Save your own provider API key in AI Settings."
     case .consent: "Enable cloud requests in AI Settings before sending catalogue information."
     case .limit:

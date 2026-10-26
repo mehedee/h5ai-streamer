@@ -26,6 +26,7 @@ struct MyraAIWorkspaceView: View {
   @State private var runStartedAt: Date?
   @State private var firstWordsAt: Date?
   @State private var runFinishedAt: Date?
+  @State private var contentHeight: CGFloat = 0
 
   init(
     store: EntertainmentStore, initialFeature: MyraAIFeature = .smartPick,
@@ -121,10 +122,16 @@ struct MyraAIWorkspaceView: View {
         .padding(.horizontal, 22)
         .padding(.vertical, 20)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+          GeometryReader { proxy in
+            Color.clear.preference(key: MyraAISheetHeightKey.self, value: proxy.size.height)
+          }
+        }
       }
-      // Sized to its content like the preview, scrolling only past 560pt.
-      .frame(maxHeight: 560)
-      .fixedSize(horizontal: false, vertical: true)
+      // The sheet follows its content like the preview, growing as the answer arrives and
+      // scrolling only past 560pt.
+      .frame(height: min(max(contentHeight, 120), 560))
+      .onPreferenceChange(MyraAISheetHeightKey.self) { contentHeight = $0 }
       footer
     }
     .frame(width: 600)
@@ -214,7 +221,8 @@ struct MyraAIWorkspaceView: View {
       columns: Array(repeating: GridItem(.flexible(), spacing: 10, alignment: .top), count: 3),
       alignment: .leading, spacing: 10
     ) {
-      ForEach(Array(response.recommendations.enumerated()), id: \.offset) { offset, recommendation in
+      ForEach(Array(response.recommendations.enumerated()), id: \.offset) {
+        offset, recommendation in
         if let title = store.catalogue.first(where: { $0.id == recommendation.titleID }) {
           recommendationCard(
             title, reason: recommendation.reason, versionID: recommendation.versionID,
@@ -504,6 +512,14 @@ struct MyraAIWorkspaceView: View {
       subtitleName = url.lastPathComponent
       localMessage = "Imported for this request only."
     } catch { localMessage = error.localizedDescription }
+  }
+}
+
+/// The measured height of the Ask Myra sheet's content.
+private struct MyraAISheetHeightKey: PreferenceKey {
+  static let defaultValue: CGFloat = 0
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+    value = max(value, nextValue())
   }
 }
 

@@ -68,7 +68,8 @@ private enum MyraAIEvalFixtures {
   }
 
   static func jsonString(_ object: Any) -> String {
-    let data = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
+    let data =
+      (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
     return String(decoding: data, as: UTF8.self)
   }
 }
@@ -105,7 +106,9 @@ private actor MyraScriptedModel: MyraAITransport {
         recommendations.append(["titleID": alias, "reason": "Matches the requested constraints."])
       } else if !expectedTitles.isEmpty {
         rawIDs += 1
-        recommendations.append(["titleID": expected.id, "reason": "Matches the requested constraints."])
+        recommendations.append([
+          "titleID": expected.id, "reason": "Matches the requested constraints.",
+        ])
       }
     }
     let wire: [String: Any] = [
@@ -122,7 +125,9 @@ private actor MyraScriptedModel: MyraAITransport {
     var searchStart = prompt.startIndex
     while let found = prompt.range(of: name, range: searchStart..<prompt.endIndex) {
       let windowStart =
-        prompt.index(found.lowerBound, offsetBy: -min(200, prompt.distance(from: prompt.startIndex, to: found.lowerBound)))
+        prompt.index(
+          found.lowerBound,
+          offsetBy: -min(200, prompt.distance(from: prompt.startIndex, to: found.lowerBound)))
       let window = String(prompt[windowStart..<found.lowerBound])
       if let regex = try? NSRegularExpression(pattern: "\\bt[0-9]{1,2}\\b"),
         let last = regex.matches(in: window, range: NSRange(window.startIndex..., in: window)).last,
@@ -194,7 +199,9 @@ final class MyraAIReliabilityTests: XCTestCase {
   func testHostEvaluationHarnessRecordsBaselineMetrics() async throws {
     let results = try await runHostEvaluation()
     let label = ProcessInfo.processInfo.environment["MYRA_EVAL_LABEL"] ?? "current"
-    print("MYRA-AI-HOST-EVAL \(label): id feature calls answerBytes expectedVisible/expected raw grounded success hit")
+    print(
+      "MYRA-AI-HOST-EVAL \(label): id feature calls answerBytes expectedVisible/expected raw grounded success hit"
+    )
     for result in results {
       print(
         "MYRA-AI-HOST-EVAL \(result.id) \(result.feature) calls=\(result.calls) bytes=\(result.answerBytes) visible=\(result.expectedVisible)/\(result.expected) grounded=\(result.groundedRawIDs)/\(result.rawIDs) success=\(result.succeeded) hit=\(result.hit) \(result.message)"
@@ -206,9 +213,11 @@ final class MyraAIReliabilityTests: XCTestCase {
     let rawTotal = results.reduce(0) { $0 + $1.rawIDs }
     let groundedTotal = results.reduce(0) { $0 + $1.groundedRawIDs }
     let meanCalls = Double(results.reduce(0) { $0 + $1.calls }) / Double(max(1, results.count))
-    let meanBytes = Double(results.reduce(0) { $0 + $1.answerBytes }) / Double(max(1, results.count))
+    let meanBytes =
+      Double(results.reduce(0) { $0 + $1.answerBytes }) / Double(max(1, results.count))
     let maxBytes = results.map(\.answerBytes).max() ?? 0
-    let twoCallShare = Double(results.filter { $0.calls >= 2 }.count) / Double(max(1, results.count))
+    let twoCallShare =
+      Double(results.filter { $0.calls >= 2 }.count) / Double(max(1, results.count))
     print(
       "MYRA-AI-HOST-EVAL SUMMARY \(label): queries=\(results.count) success=\(String(format: "%.2f", successRate)) hitRate=\(String(format: "%.2f", hitRate)) groundedRawIDRate=\(String(format: "%.2f", Double(groundedTotal) / Double(max(1, rawTotal)))) meanModelCalls=\(String(format: "%.2f", meanCalls)) twoCallShare=\(String(format: "%.2f", twoCallShare)) meanAnswerBytes=\(Int(meanBytes)) maxAnswerBytes=\(maxBytes)"
     )
@@ -224,7 +233,8 @@ final class MyraAIReliabilityTests: XCTestCase {
     let suite = "Myra-grounding-\(UUID())"
     let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
-    let model = MyraScriptedModel(intentJSON: "{}", expectedTitles: [("invented-title", "Invented Title")])
+    let model = MyraScriptedModel(
+      intentJSON: "{}", expectedTitles: [("invented-title", "Invented Title")])
     let ai = MyraAIStore(defaults: defaults, transport: model)
     await ai.execute(
       feature: .summary, prompt: "Summarise", titles: titles, personal: .init(), revision: 1,
@@ -257,18 +267,23 @@ final class MyraAIReliabilityTests: XCTestCase {
       await ai.execute(
         feature: feature, prompt: query["prompt"] as? String ?? "", titles: titles,
         personal: personal, revision: 1, selectedIDs: query["selected"] as? [String] ?? [])
-      let seconds = Double((start.duration(to: .now)).components.seconds)
+      let seconds =
+        Double((start.duration(to: .now)).components.seconds)
         + Double(start.duration(to: .now).components.attoseconds) / 1e18
       latencies.append(seconds)
       if ai.errorMessage == nil, ai.response != nil { successes += 1 }
-      print("MYRA-AI-DEVICE-EVAL \(label) \(id) \(feature.rawValue) seconds=\(String(format: "%.2f", seconds)) success=\(ai.errorMessage == nil) \(ai.errorMessage ?? "")")
+      print(
+        "MYRA-AI-DEVICE-EVAL \(label) \(id) \(feature.rawValue) seconds=\(String(format: "%.2f", seconds)) success=\(ai.errorMessage == nil) \(ai.errorMessage ?? "")"
+      )
     }
     let sorted = latencies.sorted()
     func percentile(_ p: Double) -> Double {
       let rank = Int((Double(sorted.count) * p).rounded(.up))
       return sorted[min(sorted.count - 1, max(0, rank - 1))]
     }
-    print("MYRA-AI-DEVICE-EVAL SUMMARY \(label): n=\(latencies.count) success=\(successes) p50=\(String(format: "%.2f", percentile(0.5)))s p95=\(String(format: "%.2f", percentile(0.95)))s")
+    print(
+      "MYRA-AI-DEVICE-EVAL SUMMARY \(label): n=\(latencies.count) success=\(successes) p50=\(String(format: "%.2f", percentile(0.5)))s p95=\(String(format: "%.2f", percentile(0.95)))s"
+    )
     XCTAssertEqual(latencies.count, 25)
   }
 
@@ -287,13 +302,16 @@ final class MyraAIReliabilityTests: XCTestCase {
           "Thriller", "Science Fiction", "Documentary", "Animation", "Family", "Comedy", "Mystery",
           "Romance", "Crime", "Drama", "Action", "Horror", "Fantasy", "Music",
         ],
-        catalogueTitleWords: ["glass", "harbor", "iron", "meridian", "quiet", "orbit", "winter", "cafe", "garden"])
+        catalogueTitleWords: [
+          "glass", "harbor", "iron", "meridian", "quiet", "orbit", "winter", "cafe", "garden",
+        ])
       let id = query["id"] as? String ?? ""
       XCTAssertEqual(parse.isConfident, expected, "confidence for \(id)")
       checked += 1
       if expected, let want = query["expectIntent"] as? [String: Any] {
         let got =
-          try JSONSerialization.jsonObject(with: JSONEncoder().encode(parse.intent)) as? [String: Any]
+          try JSONSerialization.jsonObject(with: JSONEncoder().encode(parse.intent))
+          as? [String: Any]
           ?? [:]
         for (key, value) in want {
           XCTAssertEqual(got[key].map { "\($0)" }, "\(value)", "intent field \(key) for \(id)")
@@ -304,7 +322,8 @@ final class MyraAIReliabilityTests: XCTestCase {
   }
 
   func testLocalParserReadsTimeWordsAndNegation() {
-    let limit = MyraIntentParser.parse(prompt: "unwatched movies under two hours", feature: .smartPick)
+    let limit = MyraIntentParser.parse(
+      prompt: "unwatched movies under two hours", feature: .smartPick)
     XCTAssertEqual(limit.intent.maximumMinutes, 120)
     XCTAssertTrue(limit.isConfident)
     let negated = MyraIntentParser.parse(prompt: "no horror please", feature: .smartPick)
@@ -378,7 +397,9 @@ final class MyraAIReliabilityTests: XCTestCase {
 
   private func fixtureTitles() throws -> ([EntertainmentTitle], EntertainmentPersonalData) {
     let fixtures = try MyraAIEvalFixtures.catalogue()
-    return (fixtures.map(MyraAIEvalFixtures.entertainmentTitle), MyraAIEvalFixtures.personal(fixtures))
+    return (
+      fixtures.map(MyraAIEvalFixtures.entertainmentTitle), MyraAIEvalFixtures.personal(fixtures)
+    )
   }
 
   @MainActor func testRetriesOnceWithLessContextAfterDecodingFailure() async throws {
@@ -386,7 +407,8 @@ final class MyraAIReliabilityTests: XCTestCase {
     let model = MyraSequenceModel(failures: [MyraAIError.decodingFailure])
     let ai = try makeStore(model)
     await ai.execute(
-      feature: .smartPick, prompt: "unwatched movies", titles: titles, personal: personal, revision: 1)
+      feature: .smartPick, prompt: "unwatched movies", titles: titles, personal: personal,
+      revision: 1)
     XCTAssertNil(ai.errorMessage)
     XCTAssertEqual(ai.response?.path, .model)
     let prompts = await model.answerPrompts
@@ -425,7 +447,8 @@ final class MyraAIReliabilityTests: XCTestCase {
 
   @MainActor func testUnavailableAssetsFallBackWithSpecificReason() async throws {
     let (titles, personal) = try fixtureTitles()
-    let model = MyraSequenceModel(failures: Array(repeating: MyraAIError.assetsUnavailable, count: 3))
+    let model = MyraSequenceModel(
+      failures: Array(repeating: MyraAIError.assetsUnavailable, count: 3))
     let ai = try makeStore(model)
     await ai.execute(
       feature: .smartPick, prompt: "Pick something uplifting", titles: titles, personal: personal,
@@ -433,6 +456,17 @@ final class MyraAIReliabilityTests: XCTestCase {
     XCTAssertEqual(ai.response?.path, .deterministicFallback)
     XCTAssertTrue(ai.response?.pathReason?.contains("downloading") ?? false)
     XCTAssertFalse(ai.response?.recommendations.isEmpty ?? true)
+  }
+
+  @MainActor func testAnswerWithoutPicksFallsBackToFixedRules() async throws {
+    let (titles, personal) = try fixtureTitles()
+    let ai = try makeStore(MyraSequenceModel(emptyPicks: true))
+    await ai.execute(
+      feature: .smartPick, prompt: "Pick something uplifting", titles: titles, personal: personal,
+      revision: 1)
+    XCTAssertEqual(ai.response?.path, .deterministicFallback)
+    XCTAssertFalse(ai.response?.recommendations.isEmpty ?? true)
+    XCTAssertTrue(ai.response?.pathReason?.contains("without choosing") ?? false)
   }
 
   @MainActor func testFallbackIsNotCachedSoTheModelIsAskedAgain() async throws {
@@ -510,11 +544,17 @@ private actor MyraSequenceModel: MyraAITransport {
   private(set) var intentCalls = 0
   private(set) var prewarmed: [MyraAIFeature] = []
   private(set) var sawStreamingHandler = false
+  /// Answers with a summary but no recommended titles.
+  private let emptyPicks: Bool
 
-  init(failures: [Error] = [], delay: Duration? = nil, partials: [String] = []) {
+  init(
+    failures: [Error] = [], delay: Duration? = nil, partials: [String] = [],
+    emptyPicks: Bool = false
+  ) {
     self.failures = failures
     self.delay = delay
     self.partials = partials
+    self.emptyPicks = emptyPicks
   }
 
   func generate(_ request: MyraAIRequest) async throws -> String {
@@ -527,6 +567,10 @@ private actor MyraSequenceModel: MyraAITransport {
     if let delay { try await Task.sleep(for: delay) }
     for text in partials { request.onPartialSummary?(text) }
     if !failures.isEmpty { throw failures.removeFirst() }
+    if emptyPicks {
+      return
+        "{\"summary\":\"Nothing stands out\",\"recommendations\":[],\"actions\":[],\"tags\":[]}"
+    }
     return
       "{\"summary\":\"Grounded\",\"recommendations\":[{\"titleID\":\"t1\",\"reason\":\"Indexed fact\"}],\"actions\":[],\"tags\":[]}"
   }

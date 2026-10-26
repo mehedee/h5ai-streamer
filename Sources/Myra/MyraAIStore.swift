@@ -245,9 +245,17 @@ import Foundation
       return try await answerAttempt(job, intent: intent, reduced: false)
     }
     do {
-      return try await withOnDeviceTimeout(onDeviceTimeout) {
+      let answer = try await withOnDeviceTimeout(onDeviceTimeout) {
         try await self.answerOnDevice(job)
       }
+      // A recommendation answer without picks falls back to the fixed rules when they find any;
+      // otherwise the model's own answer stands.
+      if job.feature.isRecommendation, answer.recommendations.isEmpty,
+        let fallback = try? fallbackResponse(job, reason: MyraAIError.noPicks)
+      {
+        return fallback
+      }
+      return answer
     } catch {
       guard job.feature.isRecommendation, Self.canFallBack(after: error) else { throw error }
       return try fallbackResponse(job, reason: error)
@@ -606,7 +614,8 @@ struct MyraAIContext: Sendable {
     for (offset, title) in picked.enumerated() {
       lines.append(
         compactLine(
-          alias: "t\(offset + 1)", title: title, personal: personal, includeHistory: includeHistory))
+          alias: "t\(offset + 1)", title: title, personal: personal, includeHistory: includeHistory)
+      )
     }
     if feature.needsSynopsis, !reduced {
       lines.append("SYNOPSES (data):")
@@ -614,7 +623,8 @@ struct MyraAIContext: Sendable {
         lines.append(
           "t\(offset + 1): "
             + MyraAIPrivacy.text(
-              title.metadata?.overview ?? "", limit: feature == .summary || feature == .translate ? 400 : 200))
+              title.metadata?.overview ?? "",
+              limit: feature == .summary || feature == .translate ? 400 : 200))
       }
     }
     if feature == .similar, let reference {
@@ -623,7 +633,8 @@ struct MyraAIContext: Sendable {
       )
     }
     if config.personalize, !config.feedback.isEmpty {
-      lines.append("PREFERENCES (explicit data): \(MyraAIPrivacy.text(config.feedback, limit: 300))")
+      lines.append(
+        "PREFERENCES (explicit data): \(MyraAIPrivacy.text(config.feedback, limit: 300))")
     }
     if feature == .plan {
       lines.append("BUDGET: \(budget ?? 0) minutes. A series candidate is one episode.")
@@ -715,14 +726,17 @@ struct MyraAIContext: Sendable {
     return context
   }
 
-  private static func statisticsLine(titles: [EntertainmentTitle], personal: EntertainmentPersonalData)
+  private static func statisticsLine(
+    titles: [EntertainmentTitle], personal: EntertainmentPersonalData
+  )
     -> String
   {
     let watched = titles.filter { personal.watched.contains($0.id) }.count
     let unfinished = titles.filter { $0.resumeVersion != nil }.count
     var genreCounts: [String: Int] = [:]
     for title in titles
-    where personal.watched.contains(title.id) || title.versions.contains(where: { $0.lastPlayed != nil })
+    where personal.watched.contains(title.id)
+      || title.versions.contains(where: { $0.lastPlayed != nil })
     {
       for genre in title.metadata?.genres ?? [] { genreCounts[genre, default: 0] += 1 }
     }
