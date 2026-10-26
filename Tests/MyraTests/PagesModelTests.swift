@@ -143,11 +143,11 @@ final class PagesModelTests: XCTestCase {
   }
 
   func testBrowserLayoutDefaultsFollowContent() {
-    XCTAssertEqual(SourceBrowserLayout.resolve(stored: "", hasVideos: true), .grid)
-    XCTAssertEqual(SourceBrowserLayout.resolve(stored: "", hasVideos: false), .list)
-    XCTAssertEqual(SourceBrowserLayout.resolve(stored: "list", hasVideos: true), .list)
-    XCTAssertEqual(SourceBrowserLayout.resolve(stored: "grid", hasVideos: false), .grid)
-    XCTAssertEqual(SourceBrowserLayout.resolve(stored: "unknown", hasVideos: false), .list)
+    // The preview's file table is the default; a saved choice wins.
+    XCTAssertEqual(SourceBrowserLayout.resolve(stored: ""), .list)
+    XCTAssertEqual(SourceBrowserLayout.resolve(stored: "list"), .list)
+    XCTAssertEqual(SourceBrowserLayout.resolve(stored: "grid"), .grid)
+    XCTAssertEqual(SourceBrowserLayout.resolve(stored: "unknown"), .list)
   }
 
   // MARK: Menu commands handled by pages

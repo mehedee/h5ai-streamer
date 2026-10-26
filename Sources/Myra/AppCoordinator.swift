@@ -76,7 +76,7 @@ final class AppCoordinator: ObservableObject {
 
   init(
     library: LibraryController = LibraryController(), personalStorageURL: URL? = nil,
-    automaticEnrichment: Bool = true
+    automaticEnrichment: Bool = !AppPersistence.isUsingProfileOverride
   ) {
     self.automaticEnrichment = automaticEnrichment
     self.library = library

@@ -332,7 +332,8 @@ struct HomeView: View {
             title: minimumRating > 0 ? "\(Int(minimumRating))+ rating" : "Rating",
             isOn: minimumRating > 0, caret: true)
         }
-        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        // The button menu style keeps the chip label; borderless menus redraw it as plain text.
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
         .accessibilityLabel("Rating filter")
         Button {
           hideWatched.toggle()
@@ -381,7 +382,7 @@ struct HomeView: View {
         title: HomeLayout.filterChipTitle(label: label, selection: selection.wrappedValue),
         isOn: !selection.wrappedValue.isEmpty, caret: true)
     }
-    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+    .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
     .accessibilityLabel("\(label) filter")
   }
 
@@ -613,25 +614,32 @@ struct HomeView: View {
             Label(title.resumeVersion == nil ? "Play" : "Resume", systemImage: "play.fill")
           }
           .buttonStyle(HeroButtonStyle(prominent: true))
-          Button("Another") { tonightIndex += 1 }
-            .buttonStyle(HeroButtonStyle())
-            .disabled(tonight.count < 2)
+          // The preview's buttons. Another and Less Like This are in the banner's context menu.
+          Button {
+            store.react(.like, to: title.id)
+          } label: {
+            Label(
+              "More Like This",
+              systemImage: store.personal.recommendationFeedback?.liked.contains(title.id) == true
+                ? "hand.thumbsup.fill" : "hand.thumbsup")
+          }
+          .buttonStyle(HeroButtonStyle())
+          Button {
+            store.react(.notTonight, to: title.id)
+          } label: {
+            Label("Not Tonight", systemImage: "moon.zzz")
+          }
+          .buttonStyle(HeroButtonStyle())
           Button("Why?") { showingWhy = true }
             .buttonStyle(HeroButtonStyle())
             .popover(isPresented: $showingWhy, arrowEdge: .bottom) { TonightWhyView(pick: pick) }
-          Menu {
-            RecommendationFeedbackItems(titleID: title.id, store: store)
-          } label: {
-            Image(systemName: "hand.thumbsup")
-              .font(.system(size: 13))
-              .foregroundStyle(.white)
-              .padding(.horizontal, 12).padding(.vertical, 6)
-              .background(Color.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
-              .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.25), lineWidth: 1))
-          }
-          .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-          .help("Recommendation feedback").accessibilityLabel("Recommendation feedback")
         }
+      }
+      .contextMenu {
+        Button("Another Pick") { tonightIndex += 1 }
+          .disabled(tonight.count < 2)
+        Divider()
+        RecommendationFeedbackItems(titleID: title.id, store: store)
       }
       .foregroundStyle(.white)
       .padding(.leading, 28).padding(.trailing, 28).padding(.bottom, 26)

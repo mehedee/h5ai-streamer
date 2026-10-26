@@ -117,9 +117,9 @@ enum SourceBrowserLayout: String, CaseIterable, Identifiable, Sendable {
     }
   }
 
-  static func resolve(stored: String, hasVideos: Bool) -> SourceBrowserLayout {
-    if let layout = SourceBrowserLayout(rawValue: stored) { return layout }
-    return hasVideos ? .grid : .list
+  /// The saved choice, or the preview's file table.
+  static func resolve(stored: String) -> SourceBrowserLayout {
+    SourceBrowserLayout(rawValue: stored) ?? .list
   }
 }
 
@@ -149,31 +149,49 @@ struct SourcesOverview: View {
   let edit: (UUID) -> Void
   let delete: (UUID) -> Void
   let addSource: () -> Void
+  /// The source shown in Browse below the grid, outlined as the preview's `.source.sel`.
+  var selectedID: UUID?
+  /// False when Browse sits below the grid, so the page has one scrolling area.
+  var scrolls = true
+  var hint: String?
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 0) {
-        Text(caption)
+    if scrolls {
+      ScrollView { content }
+    } else {
+      content
+    }
+  }
+
+  private var content: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      Text(caption)
+        .font(.system(size: 12))
+        .foregroundStyle(MyraColor.text2)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
+      LazyVGrid(
+        columns: [GridItem(.adaptive(minimum: 250), spacing: 14, alignment: .top)], spacing: 14
+      ) {
+        ForEach(summaries) { summary in
+          SourceCard(
+            summary: summary, isIndexing: isIndexing, indexingFraction: indexingFraction,
+            lastIndexed: lastIndexed, isSelected: summary.id == selectedID,
+            open: { open(summary.id) },
+            edit: { edit(summary.id) }, delete: { delete(summary.id) })
+        }
+        AddSourceCard(action: addSource)
+      }
+      if let hint {
+        Text(hint)
           .font(.system(size: 12))
           .foregroundStyle(MyraColor.text2)
-          .padding(.top, 8)
-          .padding(.bottom, 12)
-        LazyVGrid(
-          columns: [GridItem(.adaptive(minimum: 250), spacing: 14, alignment: .top)], spacing: 14
-        ) {
-          ForEach(summaries) { summary in
-            SourceCard(
-              summary: summary, isIndexing: isIndexing, indexingFraction: indexingFraction,
-              lastIndexed: lastIndexed, open: { open(summary.id) },
-              edit: { edit(summary.id) }, delete: { delete(summary.id) })
-          }
-          AddSourceCard(action: addSource)
-        }
+          .padding(.top, 14)
       }
-      .padding(.horizontal, 26)
-      .padding(.top, 4)
-      .padding(.bottom, 30)
     }
+    .padding(.horizontal, 26)
+    .padding(.top, 4)
+    .padding(.bottom, scrolls ? 30 : 0)
   }
 
   private var caption: String {
@@ -188,6 +206,7 @@ private struct SourceCard: View {
   let isIndexing: Bool
   let indexingFraction: Double
   let lastIndexed: Date?
+  var isSelected = false
   let open: () -> Void
   let edit: () -> Void
   let delete: () -> Void
@@ -236,15 +255,22 @@ private struct SourceCard: View {
         }
       }
       .padding(16)
-      .frame(maxWidth: .infinity, alignment: .leading)
+      // Grid cells share the Add Source card's height, as the preview's grid stretches rows.
+      .frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
       .background(MyraColor.content, in: RoundedRectangle(cornerRadius: MyraRadius.panel))
       .overlay(
         RoundedRectangle(cornerRadius: MyraRadius.panel)
-          .stroke(isHovering ? accent.color : MyraColor.line, lineWidth: 1))
+          .stroke(isHovering || isSelected ? accent.color : MyraColor.line, lineWidth: 1))
+      // The preview's selected ring: a 3pt soft accent halo outside the border.
+      .overlay(
+        RoundedRectangle(cornerRadius: MyraRadius.panel + 3)
+          .stroke(accent.color.opacity(isSelected ? 0.2 : 0), lineWidth: 3)
+          .padding(-2.5))
       .contentShape(RoundedRectangle(cornerRadius: MyraRadius.panel))
     }
     .buttonStyle(.plain)
     .onHover { isHovering = $0 }
+    .accessibilityAddTraits(isSelected ? .isSelected : [])
     .help("Browse \(summary.name)")
     .accessibilityLabel(
       "\(summary.name), \(summary.host), \(summary.status.title), \(summary.titleCount) titles")
@@ -316,12 +342,19 @@ struct SourcesOverviewPage: View {
   let edit: (UUID) -> Void
   let delete: (UUID) -> Void
   let addSource: () -> Void
+  var selectedID: UUID?
+  var scrolls = true
+  var hint: String?
 
   init(
     coordinator: AppCoordinator, open: @escaping (UUID) -> Void,
     edit: @escaping (UUID) -> Void, delete: @escaping (UUID) -> Void,
-    addSource: @escaping () -> Void
+    addSource: @escaping () -> Void, selectedID: UUID? = nil, scrolls: Bool = true,
+    hint: String? = nil
   ) {
+    self.selectedID = selectedID
+    self.scrolls = scrolls
+    self.hint = hint
     self.coordinator = coordinator
     _store = ObservedObject(wrappedValue: coordinator.entertainment)
     _library = ObservedObject(wrappedValue: coordinator.library)
@@ -345,6 +378,7 @@ struct SourcesOverviewPage: View {
       indexingFraction: progress.sourcesTotal > 0
         ? min(1, Double(progress.sourcesCompleted) / Double(progress.sourcesTotal)) : 0,
       lastIndexed: library.lastRefresh,
-      open: open, edit: edit, delete: delete, addSource: addSource)
+      open: open, edit: edit, delete: delete, addSource: addSource,
+      selectedID: selectedID, scrolls: scrolls, hint: hint)
   }
 }

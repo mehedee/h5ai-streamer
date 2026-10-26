@@ -11,9 +11,15 @@ struct LibraryView: View {
   @State private var sortField: DirectorySortField = .name
   @State private var sortAscending = true
   @State private var previousInspector: GlobalSearchResult?
-  @State private var showingSourceOverview = true
+  @State private var showingSourceOverview: Bool
   @AppStorage("myraSourceLayout") private var storedLayout = ""
   @Environment(\.myraAccent) private var accent
+
+  /// Returning to Sources keeps the source that was open in Browse.
+  init(coordinator: AppCoordinator) {
+    self.coordinator = coordinator
+    _showingSourceOverview = State(initialValue: coordinator.currentCategory == nil)
+  }
 
   /// Mirrors the shell's toolbar search field, which is this page's search box.
   private var searchText: String {
@@ -31,14 +37,18 @@ struct LibraryView: View {
   var body: some View {
     GeometryReader { geometry in
       Group {
-        if showingSourceOverviewPage {
-          SourcesOverviewPage(
-            coordinator: coordinator, open: openSource,
-            edit: { id in editingCategory = coordinator.categories.first { $0.id == id } },
-            delete: { id in deletingCategory = coordinator.categories.first { $0.id == id } },
-            addSource: { showingAddCategory = true })
-        } else {
+        if showingGlobalResults {
           browser
+        } else if coordinator.categories.isEmpty {
+          sourceGrid(browsing: false)
+        } else {
+          // As the preview: the source grid, then Browse for the selected source below it.
+          let browsing = !showingSourceOverview && coordinator.currentCategory != nil
+          VStack(spacing: 0) {
+            sourceGrid(browsing: browsing)
+              .fixedSize(horizontal: false, vertical: browsing)
+            if browsing { browser }
+          }
         }
       }
       .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
@@ -119,12 +129,16 @@ struct LibraryView: View {
   }
 
   /// The source grid, including the empty state with only the Add Source card, as in the preview.
-  private var showingSourceOverviewPage: Bool {
-    showingSourceOverview && !showingGlobalResults
-  }
-
-  private var hasVideoEntries: Bool {
-    visibleEntries.contains(where: MediaFileType.isVideo)
+  private func sourceGrid(browsing: Bool) -> some View {
+    SourcesOverviewPage(
+      coordinator: coordinator, open: openSource,
+      edit: { id in editingCategory = coordinator.categories.first { $0.id == id } },
+      delete: { id in deletingCategory = coordinator.categories.first { $0.id == id } },
+      addSource: { showingAddCategory = true },
+      selectedID: browsing ? coordinator.currentCategory?.id : nil,
+      scrolls: !browsing,
+      hint: browsing || coordinator.categories.isEmpty
+        ? nil : "Select a source to browse its folders.")
   }
 
   private func openSource(_ id: UUID) {
@@ -135,6 +149,9 @@ struct LibraryView: View {
 
   private var browser: some View {
     VStack(spacing: 0) {
+      // The preview's order: the section header, the crumbs row, then the table.
+      SectionHeader(title: showingGlobalResults ? "Search Results" : "Browse")
+        .padding(.horizontal, 26)
       browseBar
       ZStack {
         currentBrowser
@@ -170,7 +187,7 @@ struct LibraryView: View {
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
-        if SourceBrowserLayout.resolve(stored: storedLayout, hasVideos: hasVideoEntries) == .grid {
+        if SourceBrowserLayout.resolve(stored: storedLayout) == .grid {
           thumbnailGrid
         } else {
           browseSection
@@ -217,33 +234,11 @@ struct LibraryView: View {
   /// The Browse section from the preview: a breadcrumb above the file table.
   private var browseSection: some View {
     VStack(alignment: .leading, spacing: 0) {
-      SectionHeader(title: "Browse")
-      browseCrumbs
-        .padding(.bottom, 10)
       directoryTable
     }
     .padding(.horizontal, 26)
     .padding(.top, 4)
     .padding(.bottom, 30)
-  }
-
-  private var browseCrumbs: some View {
-    HStack(spacing: 6) {
-      if let category = coordinator.currentCategory, let root = category.rootURL {
-        let crumbs = breadcrumbs(root: root, current: coordinator.currentURL)
-        Text(category.name)
-          .fontWeight(crumbs.isEmpty ? .semibold : .regular)
-          .foregroundStyle(crumbs.isEmpty ? MyraColor.text : MyraColor.text2)
-        ForEach(Array(crumbs.enumerated()), id: \.offset) { index, crumb in
-          Text("›")
-          Text(crumb.name)
-            .fontWeight(index == crumbs.count - 1 ? .semibold : .regular)
-            .foregroundStyle(index == crumbs.count - 1 ? MyraColor.text : MyraColor.text2)
-        }
-      }
-    }
-    .font(.system(size: 13))
-    .lineLimit(1)
   }
 
   /// The file table from the preview: Name, Quality, Size, Modified and per-row actions.
@@ -418,7 +413,7 @@ struct LibraryView: View {
         SegmentedControl(
           options: SourceBrowserLayout.allCases.map { SegmentOption(value: $0, title: $0.title) },
           selection: Binding(
-            get: { SourceBrowserLayout.resolve(stored: storedLayout, hasVideos: hasVideoEntries) },
+            get: { SourceBrowserLayout.resolve(stored: storedLayout) },
             set: { storedLayout = $0.rawValue })
         )
         .help("Show files as a list or a grid")

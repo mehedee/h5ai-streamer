@@ -10,6 +10,12 @@ enum AppPersistence {
   /// checks never open a personal library. Unset in normal use.
   static let profileOverrideVariable = "MYRA_PROFILE_DIR"
 
+  /// True when an isolated developer profile is in use. Such a profile never starts network
+  /// requests with the Mac's saved credentials on its own.
+  static var isUsingProfileOverride: Bool {
+    !(ProcessInfo.processInfo.environment[profileOverrideVariable] ?? "").isEmpty
+  }
+
   static func persistentStoreURL(fileManager: FileManager = .default) throws -> URL {
     let applicationSupport: URL
     if let override = ProcessInfo.processInfo.environment[profileOverrideVariable],
