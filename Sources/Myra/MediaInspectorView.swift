@@ -224,49 +224,71 @@ struct MediaSettingsSection: View {
   @State private var status: String?
 
   var body: some View {
-    Section("Media Information") {
-      SecureField("OMDb API Key (optional)", text: $key)
-      HStack {
-        Button("Save API Key") {
-          do {
-            try OMDbKeyStore.save(key)
-            status = key.isEmpty ? "API key removed." : "API key saved in Keychain."
-          } catch { status = error.localizedDescription }
-        }
-        Link("Get an OMDb Key", destination: URL(string: "https://www.omdbapi.com/apikey.aspx")!)
+    SettingsGroup(
+      title: "Indexing",
+      note:
+        "Home loads your saved library first. Only due folders are checked automatically, on their daily, weekly or manual schedule. Unavailable sources keep their previous indexed files."
+    ) {
+      SettingsRow(
+        title: "Indexing impact",
+        detail: "Balanced scans two folders at a time; Low Impact scans one"
+      ) {
+        SettingsSelect(
+          title: "Indexing impact", selection: $library.indexingMode,
+          options: LibraryController.IndexingMode.allCases.map {
+            SettingsOption(value: $0, title: $0.rawValue)
+          })
       }
-      Text(
-        "Only movie title/year or IMDb ID is sent to OMDb. Your media URL is never sent. Personal, noncommercial use."
-      )
-      .font(.caption).foregroundStyle(.secondary)
-      if let status { Text(status).font(.caption).foregroundStyle(.secondary) }
-    }
-    Section("Library Index") {
-      Picker("Indexing impact", selection: $library.indexingMode) {
-        ForEach(LibraryController.IndexingMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+      SettingsRow(
+        title: "Last refresh",
+        detail: library.lastRefresh?.formatted(date: .abbreviated, time: .shortened)
+          ?? "Not yet refreshed"
+      ) {
+        Button("Refresh Now", action: refresh)
+          .buttonStyle(MyraButtonStyle())
+          .disabled(library.isRefreshing)
       }
-      Text(
-        "Balanced scans two folders at a time. Low Impact scans one; playback and Low Power Mode also reduce concurrency."
-      )
-      .font(.caption).foregroundStyle(.secondary)
-      Text(
-        "Home loads your saved library first. Only due folders are checked automatically, using their daily, weekly, or manual schedule."
-      )
-      if let date = library.lastRefresh { LabeledContent("Last refresh", value: date.formatted()) }
-      Button("Refresh due folders", action: refresh).disabled(library.isRefreshing)
-      Button("Manage folders and schedules…") { library.showIndexManagement = true }
+      SettingsRow(title: "Folders and schedules", detail: "Choose what is indexed and how often") {
+        Button("Manage…") { library.showIndexManagement = true }
+          .buttonStyle(MyraButtonStyle())
+      }
       if library.isRefreshing {
-        Text("Indexing. Home updates when the scan finishes; your library stays available.").font(
-          .caption)
-        Button(library.isPaused ? "Continue Indexing" : "Pause Indexing") {
-          library.isPaused.toggle()
+        SettingsRow(
+          title: "Indexing in progress",
+          detail: "Home updates when the scan finishes; your library stays available"
+        ) {
+          HStack(spacing: 6) {
+            Button(library.isPaused ? "Continue" : "Pause") { library.isPaused.toggle() }
+              .buttonStyle(MyraButtonStyle())
+            Button("Cancel") { library.cancel() }
+              .buttonStyle(MyraButtonStyle())
+          }
         }
-        Button("Cancel Indexing") { library.cancel() }
       }
-      Text(
-        "Manual refresh shows an alert when completed. Unavailable sources retain their previous indexed files."
-      )
-      .font(.caption).foregroundStyle(.secondary)
+    }
+    SettingsGroup(
+      title: "Media Information",
+      note:
+        "Only movie title and year, or the IMDb ID, is sent to OMDb. Your media URL is never sent. Personal, noncommercial use."
+    ) {
+      SettingsRow(title: "OMDb API key", detail: "Optional. Saved in Keychain") {
+        HStack(spacing: 6) {
+          SecureField("API key", text: $key)
+            .textFieldStyle(.roundedBorder).labelsHidden()
+            .frame(width: 180)
+          Button("Save") {
+            do {
+              try OMDbKeyStore.save(key)
+              status = key.isEmpty ? "API key removed." : "API key saved in Keychain."
+            } catch { status = error.localizedDescription }
+          }
+          .buttonStyle(MyraButtonStyle())
+        }
+      }
+      SettingsRow(title: "Get a key") {
+        Link("omdbapi.com", destination: URL(string: "https://www.omdbapi.com/apikey.aspx")!)
+      }
+      if let status { SettingsInlineMessage(text: status) }
     }
     .task {
       do { key = try OMDbKeyStore.read() } catch { status = error.localizedDescription }

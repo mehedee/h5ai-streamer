@@ -326,58 +326,84 @@ struct SubtitleSettingsSection: View {
   @State private var isSigningIn = false
 
   var body: some View {
-    Section("Free-First Subtitles — Optional OpenSubtitles Account") {
-      Picker("Preferred Subtitle Language", selection: $preferredLanguage) {
-        Text("English").tag("en")
-        Text("Bengali").tag("bn")
-        Text("Hindi").tag("hi")
-        Text("All Languages").tag("")
+    SettingsGroup(
+      title: "Subtitles",
+      note:
+        "Myra needs no paid subscription. Embedded tracks, nearby files, cached downloads and manual import work without an account. Online search needs a consumer API key; your provider account sets the allowance. Nothing downloads automatically."
+    ) {
+      SettingsRow(title: "Preferred language") {
+        SettingsSelect(
+          title: "Preferred language", selection: $preferredLanguage,
+          options: [
+            SettingsOption(value: "en", title: "English"),
+            SettingsOption(value: "bn", title: "Bengali"),
+            SettingsOption(value: "hi", title: "Hindi"),
+            SettingsOption(value: "", title: "All languages"),
+          ])
       }
-      Picker("Fallback Language", selection: $fallbackLanguage) {
-        Text("No Automatic Fallback").tag("")
-        Text("English").tag("en")
-        Text("Bengali").tag("bn")
-        Text("Hindi").tag("hi")
+      SettingsRow(title: "Fallback language") {
+        SettingsSelect(
+          title: "Fallback language", selection: $fallbackLanguage,
+          options: [
+            SettingsOption(value: "", title: "None"),
+            SettingsOption(value: "en", title: "English"),
+            SettingsOption(value: "bn", title: "Bengali"),
+            SettingsOption(value: "hi", title: "Hindi"),
+          ])
       }
-      SecureField("API Key", text: $credentials.apiKey)
-      TextField("Username (optional)", text: $credentials.username)
-      SecureField("Password (optional)", text: $credentials.password)
-      HStack {
-        Button("Save Subtitle Credentials") {
-          do {
-            try SubtitleCredentialStore.save(credentials)
-            Task { await OpenSubtitlesService.shared.resetSession() }
-            status = "Subtitle credentials saved in Keychain."
-          } catch { status = error.localizedDescription }
-        }
-        Button("Save & Sign In") {
-          isSigningIn = true
-          status = nil
-          let submitted = credentials
-          Task {
-            defer { isSigningIn = false }
+    }
+    SettingsGroup(
+      title: "OpenSubtitles Account",
+      note: "Optional. Credentials are saved in Keychain and used only when you search online."
+    ) {
+      SettingsRow(title: "API key") {
+        SecureField("API key", text: $credentials.apiKey)
+          .textFieldStyle(.roundedBorder).labelsHidden().frame(width: 220)
+      }
+      SettingsRow(title: "Username", detail: "Optional") {
+        TextField("Username", text: $credentials.username)
+          .textFieldStyle(.roundedBorder).labelsHidden().frame(width: 220)
+      }
+      SettingsRow(title: "Password", detail: "Optional") {
+        SecureField("Password", text: $credentials.password)
+          .textFieldStyle(.roundedBorder).labelsHidden().frame(width: 220)
+      }
+      SettingsRow(title: "Account") {
+        HStack(spacing: 6) {
+          if isSigningIn { ProgressView().controlSize(.small) }
+          Link("Get an API key", destination: URL(string: "https://www.opensubtitles.com/en/consumers")!)
+          Button("Save") {
             do {
-              try SubtitleCredentialStore.save(submitted)
-              let allowance = try await OpenSubtitlesService.shared.signIn(submitted)
-              status =
-                allowance.map { "Signed in. Provider account allowance: \($0) downloads." }
-                ?? "Signed in."
+              try SubtitleCredentialStore.save(credentials)
+              Task { await OpenSubtitlesService.shared.resetSession() }
+              status = "Subtitle credentials saved in Keychain."
             } catch { status = error.localizedDescription }
           }
-        }.disabled(
-          isSigningIn || credentials.apiKey.isEmpty || credentials.username.isEmpty
-            || credentials.password.isEmpty)
-        if isSigningIn { ProgressView().controlSize(.small) }
+          .buttonStyle(MyraButtonStyle())
+          Button("Save & Sign In") {
+            isSigningIn = true
+            status = nil
+            let submitted = credentials
+            Task {
+              defer { isSigningIn = false }
+              do {
+                try SubtitleCredentialStore.save(submitted)
+                let allowance = try await OpenSubtitlesService.shared.signIn(submitted)
+                status =
+                  allowance.map { "Signed in. Provider account allowance: \($0) downloads." }
+                  ?? "Signed in."
+              } catch { status = error.localizedDescription }
+            }
+          }
+          .buttonStyle(MyraButtonStyle(prominent: true))
+          .disabled(
+            isSigningIn || credentials.apiKey.isEmpty || credentials.username.isEmpty
+              || credentials.password.isEmpty)
+        }
       }
-      Link(
-        "Get an OpenSubtitles API Key",
-        destination: URL(string: "https://www.opensubtitles.com/en/consumers")!)
-      Text(
-        "No paid subscription is required by Myra. Embedded tracks, nearby files, cached downloads, and manual import remain available without this API. A consumer API key is required for online search; your provider account determines the actual allowance. No automatic downloads."
-      )
-      .font(.caption).foregroundStyle(.secondary)
-      if let status { Text(status).font(.caption).foregroundStyle(.secondary) }
-    }.task {
+      if let status { SettingsInlineMessage(text: status) }
+    }
+    .task {
       do { credentials = try SubtitleCredentialStore.read() } catch {
         status = error.localizedDescription
       }

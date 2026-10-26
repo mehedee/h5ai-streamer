@@ -531,109 +531,163 @@ struct MyraAISettingsSection: View {
   init(ai: MyraAIStore = .shared) { self.ai = ai }
 
   var body: some View {
-    Section("Myra AI") {
-      Picker("Provider", selection: $ai.settings.provider) {
-        ForEach(MyraAIProvider.allCases) { Text($0.title).tag($0) }
-      }.onChange(of: ai.settings.provider) { _, _ in
-        key = ""
-        ai.settings.model = ""
-        ai.refreshAvailability()
+    SettingsGroup(title: "Provider") {
+      SettingsRow(title: "Model") {
+        SettingsSelect(
+          title: "Provider", selection: $ai.settings.provider,
+          options: MyraAIProvider.allCases.map { SettingsOption(value: $0, title: $0.title) })
       }
-      Text(ai.status).font(.caption).foregroundStyle(.secondary)
-      if ai.settings.provider == .openAI || ai.settings.provider == .claude {
-        SecureField("API key", text: $key)
-        HStack {
-          Button("Save Key") {
-            do {
-              try ai.saveKey(key)
-              key = ""
-              message = "Saved in macOS Keychain."
-            } catch { message = error.localizedDescription }
-          }.disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-          Button("Remove Key") {
-            do {
-              try ai.removeKey()
-              message = "Key removed."
-            } catch { message = error.localizedDescription }
+      SettingsRow(title: "Status", detail: ai.status) {
+        StatusPill(
+          text: ai.settings.provider == .disabled
+            ? "Off" : (ai.errorMessage == nil ? "Available" : "Check settings"),
+          style: ai.settings.provider == .disabled
+            ? .neutral : (ai.errorMessage == nil ? .ok : .warn))
+      }
+      if let error = ai.errorMessage { SettingsInlineMessage(text: error, color: .orange) }
+    }
+    .onChange(of: ai.settings.provider) { _, _ in
+      key = ""
+      ai.settings.model = ""
+      ai.refreshAvailability()
+    }
+    if ai.settings.provider.isCloud {
+      SettingsGroup(
+        title: "Cloud Provider",
+        note:
+          "Cloud requests may incur charges. Compact catalogue metadata and your request are sent to the selected provider. Media URLs, private paths and network credentials are excluded. Subtitle text is sent only when you import it and allow it here."
+      ) {
+        SettingsRow(title: "API key", detail: "Saved in Keychain") {
+          HStack(spacing: 6) {
+            SecureField("API key", text: $key)
+              .textFieldStyle(.roundedBorder).labelsHidden().frame(width: 180)
+            Button("Save") {
+              do {
+                try ai.saveKey(key)
+                key = ""
+                message = "Saved in macOS Keychain."
+              } catch { message = error.localizedDescription }
+            }
+            .buttonStyle(MyraButtonStyle())
+            .disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            Button("Remove") {
+              do {
+                try ai.removeKey()
+                message = "Key removed."
+              } catch { message = error.localizedDescription }
+            }
+            .buttonStyle(MyraButtonStyle())
           }
-          Button("Test Connection") { Task { await ai.testConnection() } }.disabled(ai.isBusy)
         }
-        TextField("Model identifier", text: $ai.settings.model)
-        HStack {
-          Button("Refresh Models") { Task { await ai.refreshModels() } }.disabled(ai.isBusy)
-          if !ai.models.isEmpty {
-            Menu("Available Models") {
-              ForEach(ai.models, id: \.self) { model in Button(model) { ai.settings.model = model }
+        SettingsRow(title: "Model identifier") {
+          HStack(spacing: 6) {
+            TextField("Model", text: $ai.settings.model)
+              .textFieldStyle(.roundedBorder).labelsHidden().frame(width: 180)
+            if !ai.models.isEmpty {
+              Menu("Models") {
+                ForEach(ai.models, id: \.self) { model in
+                  Button(model) { ai.settings.model = model }
+                }
               }
+              .menuStyle(.borderlessButton).fixedSize()
             }
           }
         }
-        Toggle("Allow requests to this cloud provider", isOn: $ai.settings.cloudConsent)
-        Toggle(
-          "Include watch-history information in cloud requests", isOn: $ai.settings.shareHistory)
-        Toggle(
-          "Allow selected subtitle text in cloud recap requests", isOn: $ai.settings.shareSubtitles)
-        Text(
-          "Cloud requests may incur charges. Compact catalogue metadata and your request are sent to the selected provider. Media URLs, private paths, and network credentials are excluded. Subtitle text is sent only when you explicitly import it and enable permission."
-        )
-        .font(.caption).foregroundStyle(.secondary)
-      }
-      Toggle("Use my saved preferences for recommendations", isOn: $ai.settings.personalize)
-      TextField("Response language (for example en or bn)", text: $ai.settings.language)
-      Stepper(
-        "Daily request limit: \(ai.settings.dailyRequestLimit)",
-        value: $ai.settings.dailyRequestLimit, in: 1...500)
-      Stepper(
-        "Maximum response tokens: \(ai.settings.maximumOutputTokens)",
-        value: $ai.settings.maximumOutputTokens, in: 256...2000, step: 128)
-      Text(
-        "Requests today: \(ai.requestsToday) · Estimated input tokens: \(ai.inputTokens) · Estimated output tokens: \(ai.outputTokens)"
-      )
-      .font(.caption).foregroundStyle(.secondary)
-      Text(
-        "Limits are local safeguards, not provider billing limits. Token totals are approximate character-based estimates, not provider billing records."
-      )
-      .font(.caption).foregroundStyle(.secondary)
-      if let message { Text(message).font(.caption) }
-      if let error = ai.errorMessage { Text(error).font(.caption).foregroundStyle(.orange) }
-      Button("Clear AI Cache") {
-        ai.clearCache()
-        message = "AI cache cleared."
+        SettingsRow(title: "Connection") {
+          HStack(spacing: 6) {
+            Button("Refresh Models") { Task { await ai.refreshModels() } }
+              .buttonStyle(MyraButtonStyle()).disabled(ai.isBusy)
+            Button("Test Connection") { Task { await ai.testConnection() } }
+              .buttonStyle(MyraButtonStyle()).disabled(ai.isBusy)
+          }
+        }
+        SettingsToggleRow(
+          title: "Allow requests to this provider", isOn: $ai.settings.cloudConsent)
+        SettingsToggleRow(
+          title: "Include watch history", isOn: $ai.settings.shareHistory)
+        SettingsToggleRow(
+          title: "Allow subtitle text in recaps", isOn: $ai.settings.shareSubtitles)
       }
     }
-    Section("Personal Preferences") {
-      TextEditor(text: $feedback).frame(height: 75)
+    SettingsGroup(title: "Features") {
+      SettingsToggleRow(
+        title: "Personalise from my history",
+        detail: ai.settings.provider.isCloud
+          ? "Uses your saved preferences" : "Stays on this Mac with the Apple model",
+        isOn: $ai.settings.personalize)
+      ForEach(MyraAIFeature.allCases, id: \.self) { feature in
+        SettingsToggleRow(
+          title: feature.title,
+          isOn: Binding(
+            get: { ai.settings.enabledFeatures.contains(feature) },
+            set: { enabled in
+              if enabled {
+                ai.settings.enabledFeatures.insert(feature)
+              } else {
+                ai.settings.enabledFeatures.remove(feature)
+              }
+            }))
+      }
+    }
+    SettingsGroup(
+      title: "Limits",
+      note:
+        "Limits are local safeguards, not provider billing limits. Token totals are approximate character-based estimates."
+    ) {
+      SettingsRow(title: "Response language", detail: "For example en or bn") {
+        TextField("en", text: $ai.settings.language)
+          .textFieldStyle(.roundedBorder).labelsHidden().frame(width: 80)
+      }
+      SettingsRow(title: "Daily request limit") {
+        SettingsSelect(
+          title: "Daily request limit", selection: $ai.settings.dailyRequestLimit,
+          options: SettingsChoices.numbers(
+            [5, 10, 20, 50, 100, 200, 500], current: ai.settings.dailyRequestLimit))
+      }
+      SettingsRow(title: "Maximum response tokens") {
+        SettingsSelect(
+          title: "Maximum response tokens", selection: $ai.settings.maximumOutputTokens,
+          options: SettingsChoices.numbers(
+            Array(stride(from: 256, through: 2000, by: 128)),
+            current: ai.settings.maximumOutputTokens))
+      }
+      SettingsRow(
+        title: "Usage today",
+        detail:
+          "\(ai.requestsToday) requests · about \(ai.inputTokens) input and \(ai.outputTokens) output tokens"
+      ) {
+        Button("Clear AI Cache") {
+          ai.clearCache()
+          message = "AI cache cleared."
+        }
+        .buttonStyle(MyraButtonStyle())
+      }
+      if let message { SettingsInlineMessage(text: message) }
+    }
+    SettingsGroup(
+      title: "Personal Preferences",
+      note:
+        "For example: less horror, more mysteries, shorter movies. You control this text; Myra does not silently infer permanent preferences."
+    ) {
+      TextEditor(text: $feedback)
+        .font(.system(size: 13))
+        .scrollContentBackground(.hidden)
+        .frame(height: 64)
+        .padding(.horizontal, 8).padding(.vertical, 6)
         .accessibilityLabel("Explicit viewing preferences")
-      HStack {
-        Button("Save Preferences") {
-          ai.saveFeedback(feedback)
-          message = "Preferences saved."
-        }
-        Button("Reset Preferences") {
-          feedback = ""
-          ai.saveFeedback("")
-          message = "Preferences reset."
-        }
-      }
-      Text(
-        "Examples: less horror, more mysteries, prefer shorter movies. You control this text; Myra does not silently infer permanent preferences."
-      )
-      .font(.caption).foregroundStyle(.secondary)
-    }
-    Section("AI Features") {
-      DisclosureGroup("Enabled Tools") {
-        ForEach(MyraAIFeature.allCases, id: \.self) { feature in
-          Toggle(
-            feature.title,
-            isOn: Binding(
-              get: { ai.settings.enabledFeatures.contains(feature) },
-              set: { enabled in
-                if enabled {
-                  ai.settings.enabledFeatures.insert(feature)
-                } else {
-                  ai.settings.enabledFeatures.remove(feature)
-                }
-              }))
+      SettingsRow(title: "Preferences") {
+        HStack(spacing: 6) {
+          Button("Reset") {
+            feedback = ""
+            ai.saveFeedback("")
+            message = "Preferences reset."
+          }
+          .buttonStyle(MyraButtonStyle())
+          Button("Save") {
+            ai.saveFeedback(feedback)
+            message = "Preferences saved."
+          }
+          .buttonStyle(MyraButtonStyle(prominent: true))
         }
       }
     }

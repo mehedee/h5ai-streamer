@@ -59,11 +59,11 @@ struct SettingsView: View {
   @ObservedObject private var store: EntertainmentStore
   @Bindable var settings: AppSettings
   @AppStorage(MyraAccent.defaultsKey) private var accentRaw = MyraAccent.default.rawValue
+  @AppStorage(MyraAppearance.appearanceKey) private var iconAppearance = MyraIconAppearance
+    .automatic.rawValue
   @State private var selectedTab: MyraSettingsTab = .defaultTab
-  @State private var speedDraft = ""
   @State private var token = ""
   @State private var tokenMessage: String?
-  @State private var showingPlaybackPreferences = false
 
   init(coordinator: AppCoordinator, settings: AppSettings) {
     self.coordinator = coordinator
@@ -94,11 +94,10 @@ struct SettingsView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(MyraColor.window)
     .navigationTitle("Settings")
-    .onAppear { speedDraft = settings.speedLimit }
+    // The Settings window is its own scene, so it needs the accent the main window applies.
+    .environment(\.myraAccent, MyraAccent(rawValue: accentRaw) ?? .default)
+    .tint(accent)
     .onChange(of: settingsSnapshot) { _, _ in coordinator.saveSettings() }
-    .sheet(isPresented: $showingPlaybackPreferences) {
-      PlayerPreferencesView(player: coordinator.player)
-    }
   }
 
   /// Every stored download and appearance value. A change to any of them is saved at once.
@@ -133,8 +132,20 @@ struct SettingsView: View {
       ) {
         MyraAccentPicker(selection: accentBinding)
       }
+      SettingsRow(
+        title: "App icon",
+        detail: "Changes the Dock icon. Finder shows the default Aperture icon."
+      ) {
+        MyraIconPicker()
+      }
+      SettingsRow(title: "Icon style") {
+        SettingsSelect(
+          title: "Icon style", selection: $iconAppearance,
+          options: MyraIconAppearance.allCases.map {
+            SettingsOption(value: $0.rawValue, title: $0.title)
+          })
+      }
     }
-    MyraAppearanceSettingsSection()
     SettingsUpdatesGroup(updater: coordinator.updater)
     SettingsGroup(title: "Notifications") {
       SettingsToggleRow(
@@ -160,7 +171,7 @@ struct SettingsView: View {
         detail: "Press Return to save the token in Keychain."
       ) {
         SecureField("Token", text: $token)
-          .textFieldStyle(.roundedBorder)
+          .textFieldStyle(.roundedBorder).labelsHidden()
           .frame(width: 220)
           .onSubmit { saveToken() }
       }
@@ -186,18 +197,23 @@ struct SettingsView: View {
   }
 
   @ViewBuilder private var downloadsSections: some View {
-    SettingsGroup(
-      title: "Location",
-      note: "Leave the aria2 path empty to search PATH and common Homebrew locations."
-    ) {
-      SettingsRow(title: "Save downloads to", detail: settings.downloadDirectory) {
+    SettingsGroup(title: "Location") {
+      SettingsRow(
+        title: "Save downloads to",
+        detail: (settings.downloadDirectory as NSString).abbreviatingWithTildeInPath
+      ) {
         Button("Choose…") { coordinator.chooseDownloadDirectory() }
           .buttonStyle(MyraButtonStyle())
       }
-      SettingsRow(title: "aria2c") {
+      SettingsRow(title: "aria2", detail: aria2Detail) {
+        StatusPill(
+          text: aria2Executable == nil ? "Missing" : "Ready",
+          style: aria2Executable == nil ? .err : .ok)
+      }
+      SettingsRow(title: "aria2 path", detail: "Leave empty to detect it automatically") {
         TextField("Auto-detect", text: $settings.aria2PathOverride)
-          .textFieldStyle(.roundedBorder)
-          .frame(width: 260)
+          .textFieldStyle(.roundedBorder).labelsHidden()
+          .frame(width: 220)
       }
     }
     SettingsGroup(
@@ -205,48 +221,53 @@ struct SettingsView: View {
       note: "Changes apply immediately. Invalid values are flagged inline instead of being saved."
     ) {
       SettingsRow(title: "Simultaneous files") {
-        SettingsStepper(
-          label: "Simultaneous files", value: $settings.concurrentDownloads, range: 1...20)
+        SettingsSelect(
+          title: "Simultaneous files", selection: $settings.concurrentDownloads,
+          options: SettingsChoices.numbers(
+            Array(1...20), current: settings.concurrentDownloads))
       }
       SettingsRow(title: "Connections per file") {
-        SettingsStepper(
-          label: "Connections per file", value: $settings.connectionsPerFile, range: 1...16)
+        SettingsSelect(
+          title: "Connections per file", selection: $settings.connectionsPerFile,
+          options: SettingsChoices.numbers(Array(1...16), current: settings.connectionsPerFile))
       }
       SettingsRow(title: "Split count") {
-        SettingsStepper(label: "Split count", value: $settings.splitCount, range: 1...16)
+        SettingsSelect(
+          title: "Split count", selection: $settings.splitCount,
+          options: SettingsChoices.numbers(Array(1...16), current: settings.splitCount))
       }
       SettingsRow(title: "Retry count") {
-        SettingsStepper(label: "Retry count", value: $settings.retryCount, range: 1...20)
+        SettingsSelect(
+          title: "Retry count", selection: $settings.retryCount,
+          options: SettingsChoices.numbers(Array(1...20), current: settings.retryCount))
       }
-      SettingsRow(
-        title: "Per-file speed limit",
-        detail: "aria2 accepts values such as 0, 500K, or 10M."
-      ) {
-        TextField("0", text: $speedDraft)
-          .multilineTextAlignment(.trailing)
-          .textFieldStyle(.roundedBorder)
-          .frame(width: 110)
-          .onChange(of: speedDraft) { _, value in
-            // Only valid values reach the settings; an invalid draft keeps the last good value.
-            if MyraSettingsValidation.isValidSpeedLimit(value) {
-              settings.speedLimit = value
-            }
-          }
-      }
-      if let message = MyraSettingsValidation.speedLimitMessage(speedDraft) {
-        SettingsInlineMessage(text: message, color: .red)
+      SettingsRow(title: "Speed limit", detail: "Per file") {
+        SettingsSelect(
+          title: "Speed limit", selection: $settings.speedLimit,
+          options: SettingsChoices.strings(Self.speedLimits, current: settings.speedLimit))
       }
     }
   }
 
   @ViewBuilder private var playbackSections: some View {
-    SettingsGroup(title: "Player") {
-      SettingsRow(title: "Playback preferences") {
-        Button("Playback Preferences…") { showingPlaybackPreferences = true }
-          .buttonStyle(MyraButtonStyle())
-      }
-    }
+    PlayerSettingsGroup(player: coordinator.player)
     SubtitleSettingsSection()
+  }
+
+  /// aria2 speed values: 0 is unlimited.
+  static let speedLimits: [(String, String)] = [
+    ("0", "Unlimited"), ("500K", "500 KB/s"), ("1M", "1 MB/s"), ("2M", "2 MB/s"),
+    ("5M", "5 MB/s"), ("10M", "10 MB/s"), ("20M", "20 MB/s"),
+  ]
+
+  private var aria2Executable: URL? {
+    try? Aria2Controller.discoverExecutable(override: settings.aria2PathOverride)
+  }
+
+  private var aria2Detail: String {
+    guard let aria2Executable else { return "Not found. Install it with Homebrew: brew install aria2" }
+    let detected = settings.aria2PathOverride.trimmingCharacters(in: .whitespaces).isEmpty
+    return aria2Executable.path + (detected ? " · detected automatically" : "")
   }
 
   private func saveToken() {
@@ -380,20 +401,46 @@ private struct SettingsUpdatesGroup: View {
   }
 }
 
-/// A stepper that shows its current value on the left of the arrows.
-private struct SettingsStepper: View {
-  let label: String
-  @Binding var value: Int
-  let range: ClosedRange<Int>
+/// The Playback tab's Player group: the player's own saved preferences, applied to future
+/// playback and saved as they change.
+private struct PlayerSettingsGroup: View {
+  @ObservedObject var player: EmbeddedPlayerModel
+
+  private static let languages: [(String, String)] = [
+    ("default", "Source default"), ("en", "English"), ("bn", "Bengali"), ("hi", "Hindi"),
+    ("fr", "French"), ("es", "Spanish"), ("ja", "Japanese"), ("ko", "Korean"),
+  ]
 
   var body: some View {
-    HStack(spacing: 8) {
-      Text("\(value)")
-        .font(.system(size: 13))
-        .monospacedDigit()
-        .foregroundStyle(MyraColor.text)
-      Stepper("\(label): \(value)", value: $value, in: range)
-        .labelsHidden()
+    SettingsGroup(
+      title: "Player",
+      note: "Applies to future playback. Track choices you make in the player stay for that video."
+    ) {
+      SettingsToggleRow(title: "Autoplay next episode", isOn: $player.personalState.autoplay)
+      SettingsToggleRow(
+        title: "Skip intros and credits", detail: "Uses the markers you set in the player",
+        isOn: $player.personalState.automaticSkipping)
+      SettingsRow(title: "Default speed") {
+        SettingsSelect(
+          title: "Default speed",
+          selection: Binding(get: { player.speed }, set: { player.setSpeed($0) }),
+          options: [Float(0.5), 0.75, 1, 1.25, 1.5, 2].map {
+            SettingsOption(value: $0, title: String(format: "%.2g×", $0))
+          })
+      }
+      SettingsRow(title: "Audio language") {
+        SettingsSelect(
+          title: "Audio language", selection: $player.personalState.audioLanguage,
+          options: SettingsChoices.strings(
+            Self.languages, current: player.personalState.audioLanguage))
+      }
+      SettingsRow(title: "Subtitle language") {
+        SettingsSelect(
+          title: "Subtitle language", selection: $player.personalState.subtitleLanguage,
+          options: SettingsChoices.strings(
+            [("off", "Off")] + Self.languages, current: player.personalState.subtitleLanguage))
+      }
     }
+    .onChange(of: player.personalState) { _, _ in player.savePersonalState() }
   }
 }

@@ -639,34 +639,39 @@ struct TorrentSettingsSection: View {
   @ObservedObject var controller: TorrentController
   @State private var showReview = false
   var body: some View {
-    Section("Torrents") {
-      LabeledContent("Network consent") {
-        Text(
-          controller.consentGrantedAt.map {
-            "Accepted \($0.formatted(date: .abbreviated, time: .omitted))"
-          } ?? "Not accepted")
+    SettingsGroup(title: "Privacy") {
+      SettingsRow(
+        title: "Torrent networking",
+        detail: controller.consentGrantedAt.map {
+          "Agreed \($0.formatted(date: .abbreviated, time: .omitted)). Peers connect only after you add a link."
+        } ?? "Not agreed yet. You are asked once, when you add a link."
+      ) {
+        Button("Review…") { showReview = true }
+          .buttonStyle(MyraButtonStyle())
       }
-      Text("Networking starts only after you add a link. You are asked once.")
-        .font(.caption).foregroundStyle(.secondary)
-      Button("Review…") { showReview = true }
-      Stepper(
-        "Cache limit: \(controller.preferences.cacheLimitGB) GB",
-        value: $controller.preferences.cacheLimitGB, in: 1...10240)
-      Toggle(
-        "Seed after the selected video finishes downloading",
+    }
+    SettingsGroup(
+      title: "Streaming",
+      note:
+        "The cache is separate from your library and HTTP downloads. Active and kept files are protected. BitTorrent may upload verified pieces while downloading even when seeding is off."
+    ) {
+      SettingsRow(title: "Stream cache limit") {
+        SettingsSelect(
+          title: "Stream cache limit", selection: $controller.preferences.cacheLimitGB,
+          options: SettingsChoices.numbers(
+            [5, 10, 20, 50, 100, 200, 500], current: controller.preferences.cacheLimitGB,
+            title: { "\($0) GB" }))
+      }
+      SettingsToggleRow(
+        title: "Seed after download", detail: "Off by default",
         isOn: $controller.preferences.seedAfterCompletion)
-      Text(
-        "No by default. BitTorrent may upload verified pieces while downloading even when post-download seeding is disabled."
-      )
-      .font(.caption).foregroundStyle(.secondary)
-      LabeledContent("Upload limit (KB/s; 0 = unlimited)") {
-        TextField("0", value: $controller.preferences.uploadLimitKB, format: .number).frame(
-          width: 100)
+      SettingsRow(title: "Upload limit") {
+        SettingsSelect(
+          title: "Upload limit", selection: $controller.preferences.uploadLimitKB,
+          options: SettingsChoices.numbers(
+            [0, 100, 250, 500, 1000, 2000, 5000], current: controller.preferences.uploadLimitKB,
+            title: { $0 == 0 ? "Unlimited" : "\($0) KB/s" }))
       }
-      Text(
-        "Cache is separate from your library and HTTP downloads. Active and kept files are protected. Cancel a job before removing its cache."
-      )
-      .font(.caption).foregroundStyle(.secondary)
     }
     .onChange(of: controller.preferences) { _, _ in
       guard controller.ready else { return }
@@ -688,37 +693,48 @@ private struct TorznabSettingsSection: View {
   @State private var error: String?
   @State private var removing: TorznabSource?
   var body: some View {
-    Section("Torrent Discovery Sources") {
-      Text(
-        "Built in: Open Movies and Internet Archive. Add your own Torznab API endpoint below. API keys stay in this Mac's Keychain."
-      )
-      .font(.caption).foregroundStyle(.secondary)
+    SettingsGroup(
+      title: "Discovery Sources",
+      note: "Add your own Torznab API endpoint. API keys stay in this Mac's Keychain."
+    ) {
+      SettingsRow(title: "Open Movies", detail: "Built in") {
+        StatusPill(text: "On", style: .ok)
+      }
+      SettingsRow(title: "Internet Archive", detail: "Built in") {
+        StatusPill(text: "On", style: .ok)
+      }
       ForEach(model.sources) { source in
-        HStack {
-          VStack(alignment: .leading) {
-            Text(source.name)
-            Text(source.endpoint.absoluteString).font(.caption).foregroundStyle(.secondary)
-          }
-          Spacer()
+        SettingsRow(title: source.name, detail: source.endpoint.absoluteString) {
           Button("Remove…", role: .destructive) { removing = source }
+            .buttonStyle(MyraButtonStyle())
         }
       }
-      TextField("Source name", text: $name)
-      TextField("Torznab API endpoint (HTTPS or localhost)", text: $endpoint)
-      SecureField("API key (optional)", text: $key)
-      Button("Add Source") {
-        do {
-          try model.addSource(name: name, endpoint: endpoint, key: key)
-          name = ""
-          endpoint = ""
-          key = ""
-          error = nil
-        } catch {
-          self.error =
-            "Could not save source. Use HTTPS or local loopback HTTP, and enter the API key separately."
+      SettingsRow(title: "Source name") {
+        TextField("Name", text: $name).textFieldStyle(.roundedBorder).labelsHidden().frame(width: 220)
+      }
+      SettingsRow(title: "Torznab endpoint", detail: "HTTPS or localhost") {
+        TextField("https://…", text: $endpoint).textFieldStyle(.roundedBorder).labelsHidden().frame(width: 220)
+      }
+      SettingsRow(title: "API key", detail: "Optional") {
+        SecureField("API key", text: $key).textFieldStyle(.roundedBorder).labelsHidden().frame(width: 220)
+      }
+      SettingsRow(title: "Add a Torznab source") {
+        Button("Add…") {
+          do {
+            try model.addSource(name: name, endpoint: endpoint, key: key)
+            name = ""
+            endpoint = ""
+            key = ""
+            error = nil
+          } catch {
+            self.error =
+              "Could not save source. Use HTTPS or local loopback HTTP, and enter the API key separately."
+          }
         }
-      }.disabled(!ready || name.isEmpty || endpoint.isEmpty)
-      if let error { Text(error).foregroundStyle(.red).font(.caption) }
+        .buttonStyle(MyraButtonStyle())
+        .disabled(!ready || name.isEmpty || endpoint.isEmpty)
+      }
+      if let error { SettingsInlineMessage(text: error, color: .red) }
     }
     .confirmationDialog(
       "Remove discovery source?",

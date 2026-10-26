@@ -138,55 +138,50 @@ final class MyraAppearance {
   }
 }
 
-struct MyraAppearanceSettingsSection: View {
+/// The preview's "App icon" picker (`.iconpick`): three icons, the chosen one outlined in the
+/// accent colour. The choice changes only the running Dock icon and is restored at launch.
+struct MyraIconPicker: View {
   @AppStorage(MyraAppearance.familyKey) private var family = MyraIconFamily.aperture.rawValue
   @AppStorage(MyraAppearance.appearanceKey) private var appearance = MyraIconAppearance.automatic
     .rawValue
   @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.myraAccent) private var accent
 
   private var selectedFamily: MyraIconFamily { MyraIconFamily(storedValue: family) }
-  private var selectedAppearance: MyraIconAppearance {
-    MyraIconAppearance(storedValue: appearance)
-  }
 
   var body: some View {
-    Section("Myra Icon") {
-      Picker("Appearance", selection: $appearance) {
-        ForEach(MyraIconAppearance.allCases) { option in Text(option.title).tag(option.rawValue) }
-      }
-      HStack(spacing: 16) {
-        ForEach(MyraIconFamily.allCases) { option in
-          let isSelected = selectedFamily == option
-          Button {
-            family = option.rawValue
-          } label: {
-            VStack(spacing: 6) {
-              if let icon = MyraAppearance.image(
-                family: option,
-                appearance: selectedAppearance,
-                dark: colorScheme == .dark
-              ) {
-                Image(nsImage: icon).resizable().frame(width: 64, height: 64)
-                  .accessibilityHidden(true)
-              }
-              Text(option.title).font(.caption)
-              Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+    HStack(spacing: 10) {
+      ForEach(MyraIconFamily.allCases) { option in
+        let isSelected = selectedFamily == option
+        Button {
+          family = option.rawValue
+        } label: {
+          VStack(spacing: 4) {
+            if let icon = MyraAppearance.image(
+              family: option, appearance: MyraIconAppearance(storedValue: appearance),
+              dark: colorScheme == .dark)
+            {
+              Image(nsImage: icon).resizable().frame(width: 40, height: 40)
                 .accessibilityHidden(true)
             }
-            .padding(8)
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
+            Text(option.title)
+              .font(.system(size: 11))
+              .foregroundStyle(isSelected ? MyraColor.text : MyraColor.text2)
           }
-          .buttonStyle(.plain)
-          .accessibilityLabel("\(option.title) icon")
-          .accessibilityValue(isSelected ? "Selected" : "Not selected")
-          .accessibilityAddTraits(isSelected ? .isSelected : [])
+          .padding(6)
+          .background(
+            isSelected ? accent.color.opacity(0.13) : .clear, in: RoundedRectangle(cornerRadius: 12)
+          )
+          .overlay(
+            RoundedRectangle(cornerRadius: 12)
+              .stroke(isSelected ? accent.color : .clear, lineWidth: 1.5))
+          .contentShape(RoundedRectangle(cornerRadius: 12))
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(option.title) icon")
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
       }
-      Text(
-        "Your choice changes only the running Dock icon and is restored at launch. Finder and the app bundle always show Aperture. Clear and Tinted previews are Icon Composer renditions."
-      )
-      .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
     }
     .onAppear { MyraAppearance.migrateStoredFamily() }
     .onChange(of: family) { _, _ in MyraAppearance.apply() }

@@ -215,3 +215,23 @@ struct SettingsInlineMessage: View {
       }
   }
 }
+
+/// Options for the preview's select pills ("3 ▾", "Unlimited ▾"). A stored value outside the
+/// presets stays listed, so opening a select never changes a setting.
+enum SettingsChoices {
+  static func numbers(
+    _ presets: [Int], current: Int, title: (Int) -> String = { "\($0)" }
+  ) -> [SettingsOption<Int>] {
+    var values = presets
+    if !values.contains(current) { values = (values + [current]).sorted() }
+    return values.map { SettingsOption(value: $0, title: title($0)) }
+  }
+
+  static func strings(_ presets: [(String, String)], current: String) -> [SettingsOption<String>] {
+    var options = presets.map { SettingsOption(value: $0.0, title: $0.1) }
+    if !presets.contains(where: { $0.0 == current }) {
+      options.append(SettingsOption(value: current, title: current))
+    }
+    return options
+  }
+}
