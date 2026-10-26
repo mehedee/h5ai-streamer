@@ -1,24 +1,32 @@
 import SwiftUI
 
-/// The sparkle prompt field from the preview (`.ai .prompt`). The text is the user's own request.
+/// The sparkle prompt row from the preview (`.ai .prompt`): one line that grows for longer
+/// requests, with a return-key hint. The text is the user's own request.
 struct MyraAIPromptField: View {
   @Binding var text: String
   let label: String
+  var placeholder = "Ask Myra"
+  var submit: () -> Void = {}
 
   @Environment(\.myraAccent) private var accent
 
   var body: some View {
-    HStack(alignment: .top, spacing: 8) {
+    HStack(alignment: .firstTextBaseline, spacing: 8) {
       Image(systemName: "sparkles")
         .font(.system(size: 14, weight: .medium))
         .foregroundStyle(accent.color)
-        .frame(width: 16, height: 18)
+        .frame(width: 16)
         .accessibilityHidden(true)
-      TextEditor(text: $text)
+      TextField(placeholder, text: $text, axis: .vertical)
+        .textFieldStyle(.plain)
         .font(.system(size: 13))
-        .scrollContentBackground(.hidden)
-        .frame(minHeight: 60, maxHeight: 120)
+        .lineLimit(1...4)
+        .onSubmit(submit)
         .accessibilityLabel(label)
+      Text("↩")
+        .font(.system(size: 13))
+        .foregroundStyle(MyraColor.text3)
+        .accessibilityHidden(true)
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 10)
@@ -65,8 +73,9 @@ struct MyraAIAnswerText: View {
   }
 }
 
-/// One recommendation: a 38pt mini poster, the title, a status line and the reason, with the
-/// existing play and watchlist actions. Cards fade in one after another, 120 ms apart.
+/// One recommendation, as the preview's `.rec`: a 38pt mini poster, the title and a status line.
+/// Clicking the card plays it; the context menu also offers the watchlist. The model's reason is
+/// the card's tooltip. Cards fade in one after another, 120 ms apart.
 struct MyraAIRecommendationCard: View {
   let title: EntertainmentTitle
   let statusLine: String
@@ -78,43 +87,47 @@ struct MyraAIRecommendationCard: View {
   let toggleWatchlist: () -> Void
 
   @State private var shown = false
+  @State private var hovering = false
+
+  @Environment(\.myraAccent) private var accent
 
   var body: some View {
-    HStack(alignment: .top, spacing: 10) {
-      FallbackArtworkView(title: title.displayName, candidates: posterCandidates)
-        .frame(width: 38, height: 57)
-        .clipShape(RoundedRectangle(cornerRadius: 5))
-      VStack(alignment: .leading, spacing: 3) {
-        Text(title.displayName)
-          .font(.system(size: 12, weight: .semibold))
-          .lineLimit(2)
-        Text(statusLine)
-          .font(.system(size: 11))
-          .foregroundStyle(MyraColor.text2)
-          .lineLimit(2)
-        Text(reason)
-          .font(.system(size: 11))
-          .foregroundStyle(MyraColor.text2)
-          .lineLimit(4)
-          .textSelection(.enabled)
-        HStack(spacing: 6) {
-          Button(playLabel, action: play)
-            .buttonStyle(MyraButtonStyle(prominent: true))
-          Button(action: toggleWatchlist) {
-            Image(systemName: inWatchlist ? "bookmark.fill" : "bookmark")
-          }
-          .buttonStyle(MyraButtonStyle())
-          .help(inWatchlist ? "Remove from Watchlist" : "Add to Watchlist")
-          .accessibilityLabel(inWatchlist ? "Remove from Watchlist" : "Add to Watchlist")
+    Button(action: play) {
+      HStack(alignment: .top, spacing: 10) {
+        FallbackArtworkView(title: title.displayName, candidates: posterCandidates)
+          .frame(width: 38, height: 57)
+          .clipShape(RoundedRectangle(cornerRadius: 5))
+        VStack(alignment: .leading, spacing: 2) {
+          Text(title.displayName)
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(MyraColor.text)
+            .lineLimit(2)
+          Text(statusLine)
+            .font(.system(size: 11))
+            .foregroundStyle(MyraColor.text2)
+            .lineLimit(2)
         }
-        .padding(.top, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
       }
+      .padding(8)
       .frame(maxWidth: .infinity, alignment: .leading)
+      .background(MyraColor.content, in: RoundedRectangle(cornerRadius: 10))
+      .overlay(
+        RoundedRectangle(cornerRadius: 10)
+          .stroke(hovering ? accent.color : MyraColor.line, lineWidth: 1))
+      .contentShape(RoundedRectangle(cornerRadius: 10))
     }
-    .padding(8)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(MyraColor.content, in: RoundedRectangle(cornerRadius: 10))
-    .overlay(RoundedRectangle(cornerRadius: 10).stroke(MyraColor.line, lineWidth: 1))
+    .buttonStyle(.plain)
+    .onHover { hovering = $0 }
+    .help(reason)
+    .contextMenu {
+      Button(playLabel, action: play)
+      Button(inWatchlist ? "Remove from Watchlist" : "Add to Watchlist", action: toggleWatchlist)
+    }
+    .accessibilityLabel("\(playLabel) \(title.displayName)")
+    .accessibilityHint(reason)
+    .accessibilityAction(
+      named: Text(inWatchlist ? "Remove from Watchlist" : "Add to Watchlist"), toggleWatchlist)
     .opacity(shown ? 1 : 0)
     .offset(y: shown ? 0 : 4)
     .onAppear {

@@ -85,185 +85,227 @@ struct MyraAIWorkspaceView: View {
     return true
   }
 
+  /// The preview's Ask Myra sheet (`.sheet.ai`): one prompt row, the streamed answer, three
+  /// recommendation cards and the grounding line, then Close and Ask Again in the footer.
   var body: some View {
     VStack(spacing: 0) {
-      HStack {
-        Label("Myra Assistant", systemImage: "sparkles").font(.title2.bold())
-        Spacer()
-        Button("AI Settings") { showingSettings = true }
-        Button("Close") {
-          ai.cancel()
-          dismiss()
-        }.keyboardShortcut(.cancelAction)
-      }.padding(20)
-      Divider()
-      HSplitView {
-        ScrollView {
-          VStack(alignment: .leading, spacing: 16) {
-            Picker("What would you like to do?", selection: $feature) {
-              ForEach(MyraAIFeature.allCases, id: \.self) { Text($0.title).tag($0) }
-            }.disabled(ai.isBusy)
-            Text(feature.hint).font(.callout).foregroundStyle(.secondary)
-            Text(ai.status).font(.caption).foregroundStyle(.secondary)
-            if !ai.settings.enabledFeatures.contains(feature) {
-              Text("This feature is disabled. Enable it in AI Settings.").foregroundStyle(.orange)
+      ScrollView {
+        VStack(alignment: .leading, spacing: 0) {
+          MyraAIPromptField(
+            text: $prompt, label: "Your request or preferences",
+            placeholder: "Ask for something to watch, a summary or a comparison",
+            submit: { if canRun { run() } })
+          if needsContext {
+            contextControls.padding(.top, 12)
+          }
+          answer.padding(.top, 14)
+          if let response = result {
+            recommendations(response).padding(.top, 12)
+            if !response.tags.isEmpty {
+              Text("Suggested tags: " + response.tags.joined(separator: " · "))
+                .font(.system(size: 12)).foregroundStyle(MyraColor.text2)
+                .padding(.top, 10)
             }
-            MyraAIPromptField(text: $prompt, label: "Your request or preferences")
-            Text(
-              "Describe your mood, constraints, or question. Avoid passwords and private network details."
-            )
-            .font(.caption).foregroundStyle(.secondary)
-            if feature == .plan {
-              Stepper(
-                "Time available: \(availableMinutes) minutes", value: $availableMinutes,
-                in: 15...600, step: 15)
-            }
-            if requiresTitles || feature == .collection || feature == .action {
-              titleSelection
-            }
-            if feature == .recap { recapControls }
-            HStack {
-              Button(ai.isBusy ? "Working…" : "Ask Myra") { run() }
-                .buttonStyle(.borderedProminent).disabled(!canRun)
-                .keyboardShortcut(.return, modifiers: [.command])
-              if ai.isBusy {
-                ProgressView().controlSize(.small)
-                Button("Cancel") {
-                  ai.cancel()
-                  requestTask?.cancel()
-                }
-              }
-            }
-            Text("AI can make mistakes. Availability and playback always come from your library.")
-              .font(.caption).foregroundStyle(.secondary)
-            if ai.settings.provider == .openAI || ai.settings.provider == .claude {
-              Label(
-                "This request uses your selected cloud provider and may incur charges.",
-                systemImage: "cloud"
-              )
-              .font(.caption).foregroundStyle(.secondary)
-            }
-          }.padding(20)
-        }.frame(minWidth: 310, idealWidth: 360, maxWidth: 430)
-        ScrollView {
-          VStack(alignment: .leading, spacing: 18) {
-            if let message = localMessage { Text(message).foregroundStyle(.orange) }
-            if let message = ai.errorMessage {
-              Text(message).foregroundStyle(.orange).textSelection(.enabled)
-            }
-            if let response = result {
-              MyraAIAnswerText(text: response.summary)
-              if !response.tags.isEmpty {
-                Text("Suggested tags: " + response.tags.joined(separator: " · "))
-                  .font(.callout).foregroundStyle(.secondary)
-              }
-              LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 170), spacing: 10, alignment: .top)],
-                alignment: .leading, spacing: 10
-              ) {
-                ForEach(Array(response.recommendations.enumerated()), id: \.offset) {
-                  offset, recommendation in
-                  if let title = store.catalogue.first(where: { $0.id == recommendation.titleID })
-                  {
-                    recommendationCard(
-                      title, reason: recommendation.reason, versionID: recommendation.versionID,
-                      index: offset)
-                  }
-                }
-              }
-              .padding(.top, 12)
-              if !response.actions.isEmpty {
-                Divider()
-                Text("Review proposed changes").font(.headline)
+            if !response.actions.isEmpty {
+              VStack(alignment: .leading, spacing: 8) {
+                Text("Review proposed changes").font(.system(size: 13, weight: .semibold))
                 Text("Nothing changes until you choose Apply. Review corrections before saving.")
-                  .font(.caption).foregroundStyle(.secondary)
+                  .font(.system(size: 11)).foregroundStyle(MyraColor.text2)
                 ForEach(response.actions) { action in actionPreview(action) }
               }
-              VStack(alignment: .leading, spacing: 6) {
-                MyraAIGroundingFooter(
-                  items: MyraAIGroundingLine.footerItems(
-                    providerName: response.path == .deterministicFallback
-                      ? "Fixed-rule picks" : "Generated with \(response.provider)",
-                    pickCount: response.recommendations.count,
-                    timing: timingLabel, provider: ai.settings.provider))
-                if response.path == .deterministicFallback {
-                  Label(
-                    "Answered by Myra's fixed-rule recommender. The on-device model did not answer.",
-                    systemImage: "list.bullet.rectangle"
-                  ).font(.caption).foregroundStyle(.secondary)
-                  if let reason = response.pathReason {
-                    Text("Reason: \(reason)").font(.caption).foregroundStyle(.secondary)
-                  }
-                }
-                Text(response.sourceNote).font(.caption).foregroundStyle(.secondary)
-              }
-              .padding(.top, 12)
-              if ai.canUndo {
-                Button("Undo Last Library Change") {
-                  do {
-                    try ai.undo(in: store)
-                    appliedActions.removeAll()
-                    localMessage = "Change undone."
-                  } catch { localMessage = error.localizedDescription }
-                }
-              }
-            } else if ai.isBusy, !ai.partialSummary.isEmpty {
-              VStack(alignment: .leading, spacing: 8) {
-                Label("Writing on this Mac…", systemImage: "sparkles")
-                  .font(.caption).foregroundStyle(.secondary)
-                MyraAIAnswerText(text: ai.partialSummary, streaming: true)
-                if let timingLabel {
-                  Text(timingLabel).font(.system(size: 11)).foregroundStyle(MyraColor.text2)
-                }
-              }
-            } else if ai.isBusy {
-              VStack(alignment: .leading, spacing: 8) {
-                MyraAIAnswerText(text: "", streaming: true)
-                if let timingLabel {
-                  Text(timingLabel).font(.system(size: 11)).foregroundStyle(MyraColor.text2)
-                }
-              }
-              .frame(minHeight: 48, alignment: .topLeading)
-            } else {
-              ContentUnavailableView(
-                "Find your next favourite", systemImage: "sparkles",
-                description: Text(
-                  "Choose a tool and describe what you need. Myra uses your indexed library and available metadata."
-                )
-              )
-              .frame(minHeight: 300)
+              .padding(.top, 14)
             }
-          }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
-        }.frame(minWidth: 430)
+          }
+          grounding.padding(.top, 12)
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 20)
+        .frame(maxWidth: .infinity, alignment: .leading)
       }
-    }.frame(minWidth: 840, idealWidth: 1040, minHeight: 600, idealHeight: 740)
-      .onAppear {
-        ai.refreshAvailability()
-        ai.prewarm(feature: feature)
+      // Sized to its content like the preview, scrolling only past 560pt.
+      .frame(maxHeight: 560)
+      .fixedSize(horizontal: false, vertical: true)
+      footer
+    }
+    .frame(width: 600)
+    .background(MyraColor.window)
+    .onAppear {
+      ai.refreshAvailability()
+      ai.prewarm(feature: feature)
+    }
+    .onDisappear {
+      requestTask?.cancel()
+      ai.cancel()
+      subtitleText = nil
+    }
+    .onChange(of: feature) { _, _ in
+      localMessage = nil
+      appliedActions.removeAll()
+      result = nil
+      ai.prewarm(feature: feature)
+    }
+    .onChange(of: episodeID) { _, _ in
+      subtitleText = nil
+      subtitleName = ""
+    }
+    .onChange(of: ai.partialSummary) { _, partial in
+      if !partial.isEmpty, firstWordsAt == nil, runStartedAt != nil { firstWordsAt = Date() }
+    }
+    .sheet(isPresented: $showingSettings) { MyraAISettingsWindow(ai: ai) }
+    .fileImporter(isPresented: $importingSubtitle, allowedContentTypes: [.plainText, .data]) {
+      result in
+      importSubtitle(result)
+    }
+  }
+
+  /// Tools that need chosen titles, an episode or a time budget show those controls under the
+  /// prompt; the default Smart Pick needs none, as in the preview.
+  private var needsContext: Bool {
+    requiresTitles || feature == .collection || feature == .action || feature == .plan
+      || feature == .recap
+  }
+
+  @ViewBuilder private var contextControls: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      if feature == .plan {
+        Stepper(
+          "Time available: \(availableMinutes) minutes", value: $availableMinutes,
+          in: 15...600, step: 15)
       }
-      .onDisappear {
-        requestTask?.cancel()
+      if requiresTitles || feature == .collection || feature == .action { titleSelection }
+      if feature == .recap { recapControls }
+    }
+    .font(.system(size: 13))
+    .padding(12)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(MyraColor.content, in: RoundedRectangle(cornerRadius: 10))
+    .overlay(RoundedRectangle(cornerRadius: 10).stroke(MyraColor.line, lineWidth: 1))
+  }
+
+  /// The `.answer` block: streamed text with the cursor while Myra writes, then the result.
+  /// Before a run it shows what the chosen tool does; problems show here in orange.
+  @ViewBuilder private var answer: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      if let message = localMessage {
+        Text(message).foregroundStyle(.orange)
+      }
+      if let message = ai.errorMessage {
+        Text(message).foregroundStyle(.orange).textSelection(.enabled)
+      }
+      if let response = result {
+        MyraAIAnswerText(text: response.summary)
+      } else if ai.isBusy {
+        MyraAIAnswerText(text: ai.partialSummary, streaming: true)
+      } else if localMessage == nil, ai.errorMessage == nil {
+        Text(feature.hint).foregroundStyle(MyraColor.text2)
+        if !ai.settings.enabledFeatures.contains(feature) {
+          Text("This tool is turned off. Turn it on in AI Settings.").foregroundStyle(.orange)
+        }
+      }
+    }
+    .font(.system(size: 13))
+    .lineSpacing(4)
+    .frame(maxWidth: .infinity, minHeight: 48, alignment: .topLeading)
+  }
+
+  /// Three cards across, as the preview's `.recs` grid.
+  private func recommendations(_ response: MyraAIResponse) -> some View {
+    LazyVGrid(
+      columns: Array(repeating: GridItem(.flexible(), spacing: 10, alignment: .top), count: 3),
+      alignment: .leading, spacing: 10
+    ) {
+      ForEach(Array(response.recommendations.enumerated()), id: \.offset) { offset, recommendation in
+        if let title = store.catalogue.first(where: { $0.id == recommendation.titleID }) {
+          recommendationCard(
+            title, reason: recommendation.reason, versionID: recommendation.versionID,
+            index: offset)
+        }
+      }
+    }
+  }
+
+  /// The `.grounding` line. Before a run it states where requests go; after, how the answer
+  /// was made. The fixed-rule fallback and undo stay with it.
+  @ViewBuilder private var grounding: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      if let response = result {
+        MyraAIGroundingFooter(
+          items: MyraAIGroundingLine.footerItems(
+            providerName: response.path == .deterministicFallback
+              ? "Fixed-rule picks" : response.provider,
+            pickCount: response.recommendations.count,
+            timing: timingLabel, provider: ai.settings.provider))
+        if response.path == .deterministicFallback {
+          Text(
+            "Answered by Myra's fixed-rule recommender because the on-device model did not answer."
+              + (response.pathReason.map { " Reason: \($0)" } ?? ""))
+        }
+        Text(response.sourceNote)
+        if ai.canUndo {
+          Button("Undo Last Library Change") {
+            do {
+              try ai.undo(in: store)
+              appliedActions.removeAll()
+              localMessage = "Change undone."
+            } catch { localMessage = error.localizedDescription }
+          }
+          .buttonStyle(MyraButtonStyle())
+        }
+      } else {
+        // The provider status already says where requests go.
+        MyraAIGroundingFooter(
+          items: [ai.status, timingLabel].compactMap { $0 }.filter { !$0.isEmpty }
+            + (ai.settings.provider.isCloud ? ["May incur charges"] : []))
+      }
+    }
+    .font(.system(size: 11))
+    .foregroundStyle(MyraColor.text2)
+  }
+
+  /// The `.foot`: the tool and AI Settings on the left, Close and Ask on the right.
+  private var footer: some View {
+    HStack(spacing: 8) {
+      Menu {
+        Picker("Tool", selection: $feature) {
+          ForEach(MyraAIFeature.allCases, id: \.self) { Text($0.title).tag($0) }
+        }
+        .pickerStyle(.inline)
+      } label: {
+        Text(feature.title)
+      }
+      .menuStyle(.borderlessButton)
+      .fixedSize()
+      .disabled(ai.isBusy)
+      .help("Choose what Myra should do")
+      .accessibilityLabel("Myra AI tool")
+      Button("AI Settings…") { showingSettings = true }
+        .buttonStyle(.plain)
+        .foregroundStyle(MyraColor.text2)
+      Spacer(minLength: 12)
+      Button("Close") {
         ai.cancel()
-        subtitleText = nil
+        dismiss()
       }
-      .onChange(of: feature) { _, _ in
-        localMessage = nil
-        appliedActions.removeAll()
-        result = nil
-        ai.prewarm(feature: feature)
+      .buttonStyle(MyraButtonStyle())
+      .keyboardShortcut(.cancelAction)
+      if ai.isBusy {
+        Button("Stop") {
+          ai.cancel()
+          requestTask?.cancel()
+        }
+        .buttonStyle(MyraButtonStyle(prominent: true))
+      } else {
+        Button(result == nil ? "Ask Myra" : "Ask Again") { run() }
+          .buttonStyle(MyraButtonStyle(prominent: true))
+          .disabled(!canRun)
+          .keyboardShortcut(.return, modifiers: [.command])
       }
-      .onChange(of: episodeID) { _, _ in
-        subtitleText = nil
-        subtitleName = ""
-      }
-      .onChange(of: ai.partialSummary) { _, partial in
-        if !partial.isEmpty, firstWordsAt == nil, runStartedAt != nil { firstWordsAt = Date() }
-      }
-      .sheet(isPresented: $showingSettings) { MyraAISettingsWindow(ai: ai) }
-      .fileImporter(isPresented: $importingSubtitle, allowedContentTypes: [.plainText, .data]) {
-        result in
-        importSubtitle(result)
-      }
+    }
+    .font(.system(size: 13))
+    .padding(.horizontal, 22)
+    .padding(.vertical, 12)
+    .background(MyraColor.fill)
+    .overlay(alignment: .top) { Rectangle().fill(MyraColor.line).frame(height: 1) }
   }
 
   private var titleSelection: some View {
