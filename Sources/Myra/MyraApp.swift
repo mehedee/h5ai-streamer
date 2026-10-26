@@ -175,7 +175,8 @@ struct MyraApp: App {
         }
     }
     .defaultSize(width: 1_240, height: 800)
-    .windowToolbarStyle(.unified(showsTitle: false))
+    // The shell draws its own compact header beside the window buttons, as in the preview.
+    .windowStyle(.hiddenTitleBar)
     .commands {
       MyraCommands(coordinator: coordinator, player: coordinator.player)
     }

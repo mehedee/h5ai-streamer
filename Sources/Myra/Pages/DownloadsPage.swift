@@ -135,7 +135,11 @@ enum DownloadsModel {
   /// The header text beside the segmented control: free space and the save folder.
   static func storageSummary(folder: String) -> String {
     let location = (folder as NSString).abbreviatingWithTildeInPath
-    let url = URL(fileURLWithPath: folder, isDirectory: true)
+    // The folder may not exist until the first download, so measure its nearest existing parent.
+    var url = URL(fileURLWithPath: folder, isDirectory: true)
+    while !FileManager.default.fileExists(atPath: url.path), url.pathComponents.count > 1 {
+      url = url.deletingLastPathComponent()
+    }
     guard
       let free = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
         .volumeAvailableCapacityForImportantUsage
@@ -154,10 +158,22 @@ struct DownloadsInProgressView: View {
   @State private var partialDataBatch: DownloadBatch?
   @State private var deletingBatch: DownloadBatch?
 
-  private var batches: [DownloadBatch] { DownloadsModel.inProgress(coordinator.batches) }
+  /// The shell's toolbar search narrows every list on this page.
+  private var query: String { coordinator.searchText.trimmingCharacters(in: .whitespaces) }
+  private func matches(_ name: String) -> Bool {
+    query.isEmpty || name.localizedCaseInsensitiveContains(query)
+  }
+
+  private var batches: [DownloadBatch] {
+    DownloadsModel.inProgress(coordinator.batches).filter { matches($0.title) }
+  }
   /// Torrent transfers that are not finished. Completed torrents live in the Library section.
-  private var torrentRows: [TorrentTransferRow] { torrents.transferRows.filter { !$0.isComplete } }
-  private var completedToday: [DownloadBatch] { DownloadsModel.completedToday(coordinator.batches) }
+  private var torrentRows: [TorrentTransferRow] {
+    torrents.transferRows.filter { !$0.isComplete && matches($0.name) }
+  }
+  private var completedToday: [DownloadBatch] {
+    DownloadsModel.completedToday(coordinator.batches).filter { matches($0.title) }
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {

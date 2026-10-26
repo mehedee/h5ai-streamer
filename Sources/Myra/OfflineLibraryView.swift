@@ -8,10 +8,8 @@ struct OfflineLibraryView: View {
   @ObservedObject private var store: EntertainmentStore
   @ObservedObject private var torrents: TorrentController
   @State private var segment: DownloadsSegment = .defaultSegment
-  @State private var query = ""
   @State private var hideMissing = false
   @State private var choosing: EntertainmentTitle?
-  @FocusState private var libraryFieldFocused: Bool
   private let localSourceID = UUID(uuidString: "A90C94FE-EA65-4EE6-AEBE-38F6AB267F73")!
 
   init(coordinator: AppCoordinator) {
@@ -39,6 +37,9 @@ struct OfflineLibraryView: View {
     }
     return EntertainmentGrouping.group(versions, corrections: store.personal.matchCorrections)
   }
+
+  /// The shell's toolbar search field.
+  private var query: String { coordinator.searchText.trimmingCharacters(in: .whitespaces) }
 
   private var visible: [EntertainmentTitle] {
     titles.filter { title in
@@ -68,13 +69,6 @@ struct OfflineLibraryView: View {
     .padding(.top, 4)
     .padding(.bottom, 30)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .onReceive(NotificationCenter.default.publisher(for: MyraCommand.notification)) { note in
-      // Find moves to the Library section and focuses its search field.
-      if MyraCommand(notification: note) == .find {
-        segment = .library
-        libraryFieldFocused = true
-      }
-    }
     .sheet(item: $choosing) { title in
       OfflineVersionChooser(title: title) { version in
         choosing = nil
@@ -112,7 +106,6 @@ struct OfflineLibraryView: View {
   private var libraryContent: some View {
     VStack(alignment: .leading, spacing: 0) {
       HStack(spacing: 12) {
-        SearchField(text: $query, prompt: "Find a downloaded title", isFocused: $libraryFieldFocused)
         Toggle("Hide missing", isOn: $hideMissing).toggleStyle(.checkbox)
         Spacer()
       }

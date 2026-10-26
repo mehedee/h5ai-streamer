@@ -8,6 +8,8 @@ private func byteText(_ value: Int64) -> String {
 /// Transfers page: add-link bar, Now Streaming card, Active list, and open-video Discover tab.
 struct TorrentsView: View {
   @ObservedObject var controller: TorrentController
+  /// The shell's toolbar search; it narrows the Active list.
+  var searchText = ""
   @State private var tab = 0
   @State private var link = ""
   @State private var removing: TorrentIdentity?
@@ -149,7 +151,10 @@ struct TorrentsView: View {
             description: Text("Paste a magnet link, drop a .torrent file, or discover an open video."))
             .frame(maxWidth: .infinity, minHeight: 220)
         } else {
-          let active = controller.transferRows.filter { !$0.isStreaming }
+          let query = searchText.trimmingCharacters(in: .whitespaces)
+          let active = controller.transferRows.filter {
+            !$0.isStreaming && (query.isEmpty || $0.name.localizedCaseInsensitiveContains(query))
+          }
           if !active.isEmpty {
             SectionHeader(title: "Active", count: active.count)
             RowCard(rows: active.map(activeRow))

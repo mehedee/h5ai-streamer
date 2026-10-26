@@ -101,7 +101,9 @@ struct RootView: View {
         EmbeddedPlayerView(coordinator: coordinator, player: player)
       }
     }
-    .ignoresSafeArea(edges: fullscreenPlayback ? .all : [])
+    // The header sits in the top row with the window buttons, so the shell runs under the hidden
+    // title bar.
+    .ignoresSafeArea(edges: fullscreenPlayback ? .all : .top)
     .sheet(item: $coordinator.playbackChoices) { choices in
       PlaybackChoicesView(choices: choices, play: coordinator.playChosenVersion)
     }
@@ -132,20 +134,17 @@ struct RootView: View {
     .preferredColorScheme(preferredColorScheme)
     .onChange(of: section, initial: true) { _, value in
       coordinator.currentSection = value
+      // Each page has its own search context, as each has its own placeholder.
+      coordinator.searchText = ""
     }
     .onReceive(NotificationCenter.default.publisher(for: MyraCommand.notification)) { note in
       guard let command = MyraCommand(notification: note) else { return }
       handle(command)
     }
     .navigationTitle("Myra")
-    // The shell draws its own 52pt header. The native toolbar is only used for the player.
-    .toolbar(
-      player.media == nil ? .hidden : (fullscreenPlayback ? .hidden : .automatic),
-      for: .windowToolbar
-    )
-    .toolbarBackground(.regularMaterial, for: .windowToolbar)
-    .toolbarBackground(.visible, for: .windowToolbar)
-    .toolbar { playerToolbar }
+    // The shell draws its own 52pt header and the player draws its own top bar, so the window has
+    // no native toolbar.
+    .toolbar(.hidden, for: .windowToolbar)
   }
 
   /// Sidebar, header and the active page, laid out as the approved preview window.
@@ -188,7 +187,7 @@ struct RootView: View {
     case .downloads:
       OfflineLibraryView(coordinator: coordinator)
     case .transfers:
-      TorrentsView(controller: coordinator.torrents)
+      TorrentsView(controller: coordinator.torrents, searchText: coordinator.searchText)
     }
   }
 
@@ -212,6 +211,7 @@ struct RootView: View {
     .padding(.leading, 18)
     .padding(.trailing, 14)
     .frame(height: 52)
+    .background(WindowDragArea())
   }
 
   /// The action pill for the current page. Each button posts the same command as its menu item.
@@ -246,31 +246,6 @@ struct RootView: View {
       command.post()
     }
     .disabled(!command.availability(in: commandContext).isEnabled)
-  }
-
-  @ToolbarContentBuilder private var playerToolbar: some ToolbarContent {
-    if player.media != nil {
-      ToolbarItem(placement: .navigation) {
-        Button {
-          player.close()
-        } label: {
-          Label("Back to Library", systemImage: "chevron.left")
-        }
-      }.continuousHeaderBackground()
-      ToolbarItem(placement: .principal) {
-        Text(player.media.map { MediaIdentity.parse(filename: $0.entry.name).title } ?? "Player")
-          .font(.headline).lineLimit(1).help(player.media?.entry.name ?? "")
-      }.continuousHeaderBackground()
-      ToolbarItemGroup(placement: .primaryAction) {
-        Text(player.status).font(.caption).foregroundStyle(.secondary)
-        Button {
-          player.toggleFullscreen()
-        } label: {
-          Image(systemName: "arrow.up.left.and.arrow.down.right")
-        }
-        .help("Enter fullscreen").accessibilityIdentifier("player.fullscreen")
-      }.continuousHeaderBackground()
-    }
   }
 
   /// Handles menu commands. Page-owned commands are disabled in the menu until a page handles them.
@@ -360,7 +335,9 @@ private struct ShellSidebar: View {
       footer
     }
     .padding(.horizontal, 10)
-    .padding(.vertical, 12)
+    // The window buttons sit in the sidebar's top row, as the preview's `.lights` row.
+    .padding(.top, 42)
+    .padding(.bottom, 12)
     .frame(width: 212)
     .frame(maxHeight: .infinity)
     .background {
@@ -469,6 +446,24 @@ private struct ShellSidebar: View {
       Button("OK") { library.completionMessage = nil }
     } message: {
       Text(library.completionMessage ?? "")
+    }
+  }
+}
+
+/// Lets the header's empty space move and zoom the window, as the hidden title bar would.
+struct WindowDragArea: NSViewRepresentable {
+  func makeNSView(context: Context) -> NSView { DragView() }
+  func updateNSView(_ nsView: NSView, context: Context) {}
+
+  private final class DragView: NSView {
+    override var mouseDownCanMoveWindow: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+      if event.clickCount == 2 {
+        window?.performZoom(nil)
+      } else {
+        window?.performDrag(with: event)
+      }
     }
   }
 }

@@ -13,12 +13,15 @@ struct LibraryView: View {
   @State private var previousInspector: GlobalSearchResult?
   @State private var showingSourceOverview = true
   @AppStorage("myraSourceLayout") private var storedLayout = ""
-  @FocusState private var searchFieldFocused: Bool
   @Environment(\.myraAccent) private var accent
 
+  /// Mirrors the shell's toolbar search field, which is this page's search box.
   private var searchText: String {
     get { search.query }
-    nonmutating set { search.updateQuery(newValue) }
+    nonmutating set {
+      search.updateQuery(newValue)
+      if coordinator.searchText != newValue { coordinator.searchText = newValue }
+    }
   }
   private var searchScope: SearchScope {
     get { search.scope }
@@ -42,78 +45,19 @@ struct LibraryView: View {
     }
     .navigationTitle("Myra")
     .onReceive(NotificationCenter.default.publisher(for: MyraCommand.notification)) { note in
+      // Find focuses the shell's search field; this page only handles Add Source.
       switch MyraCommand(notification: note) {
-      case .find:
-        showingSourceOverview = false
-        searchFieldFocused = true
       case .addSource:
         showingAddCategory = true
       default:
         break
       }
     }
-    .toolbar {
-      ToolbarItem(placement: .principal) {
-        searchAndNavigationBar
-      }
-      ToolbarItemGroup {
-        if !showingSourceOverviewPage {
-          Picker(
-            "Layout",
-            selection: Binding(
-              get: {
-                SourceBrowserLayout.resolve(stored: storedLayout, hasVideos: hasVideoEntries)
-              },
-              set: { storedLayout = $0.rawValue })
-          ) {
-            ForEach(SourceBrowserLayout.allCases) { layout in
-              Label(layout.title, systemImage: layout.symbol).tag(layout)
-            }
-          }
-          .pickerStyle(.segmented)
-          .help("Show files as a list or a grid")
-          .accessibilityLabel("File layout")
-          .disabled(showingGlobalResults)
-        }
-        Button {
-          showingAddCategory = true
-        } label: {
-          Label("Add Source", systemImage: "plus")
-        }
-        .help("Add a folder or network share as a source")
-        Button {
-          if showingGlobalResults {
-            coordinator.startGlobalSearch(query: searchText)
-          } else {
-            Task {
-              if let category = coordinator.currentCategory {
-                await coordinator.selectCategory(category)
-              }
-            }
-          }
-        } label: {
-          Label(
-            showingGlobalResults ? "Refresh Search" : "Refresh", systemImage: "arrow.clockwise")
-        }
-        .disabled(
-          showingGlobalResults
-            ? searchText.trimmingCharacters(in: .whitespacesAndNewlines).count < 3
-              || coordinator.isGlobalSearching
-            : coordinator.currentCategory == nil || coordinator.isLoading)
-        Button {
-          if showingGlobalResults {
-            coordinator.downloadGlobalSearchSelection()
-          } else {
-            coordinator.downloadSelection()
-          }
-        } label: {
-          Label("Download Selected", systemImage: "arrow.down.circle.fill")
-        }
-        .disabled(
-          showingGlobalResults
-            ? coordinator.globalSearchSelection.isEmpty || coordinator.isEnqueueingGlobalDownloads
-            : coordinator.selection.isEmpty || coordinator.isScanning)
-      }
+    .onAppear {
+      if search.query != coordinator.searchText { searchText = coordinator.searchText }
+    }
+    .onChange(of: coordinator.searchText) { _, text in
+      if search.query != text { searchText = text }
     }
     .sheet(isPresented: $showingAddCategory) {
       CategoryEditorSheet(title: "Add Source", initialName: "", initialURL: "") { name, url in
@@ -174,8 +118,9 @@ struct LibraryView: View {
     }
   }
 
+  /// The source grid, including the empty state with only the Add Source card, as in the preview.
   private var showingSourceOverviewPage: Bool {
-    showingSourceOverview && !showingGlobalResults && !coordinator.categories.isEmpty
+    showingSourceOverview && !showingGlobalResults
   }
 
   private var hasVideoEntries: Bool {
@@ -190,6 +135,7 @@ struct LibraryView: View {
 
   private var browser: some View {
     VStack(spacing: 0) {
+      browseBar
       ZStack {
         currentBrowser
           .opacity(showingGlobalResults ? 0 : 1)
@@ -197,23 +143,6 @@ struct LibraryView: View {
           .accessibilityHidden(showingGlobalResults)
         if showingGlobalResults { globalBrowser }
       }
-      Divider()
-      HStack {
-        if showingGlobalResults {
-          Text("\(coordinator.globalSearchResults.count) matching videos")
-          if !coordinator.globalSearchSelection.isEmpty {
-            Text("• \(coordinator.globalSearchSelection.count) selected")
-          }
-        } else {
-          Text("\(visibleEntries.count) of \(coordinator.entries.count) items")
-          if !coordinator.selection.isEmpty { Text("• \(coordinator.selection.count) selected") }
-        }
-        Spacer()
-      }
-      .font(.caption)
-      .foregroundStyle(.secondary)
-      .padding(.horizontal, 12)
-      .frame(height: 28)
     }
   }
 
@@ -222,7 +151,15 @@ struct LibraryView: View {
       if coordinator.isLoading {
         ProgressView("Loading directory…").frame(maxWidth: .infinity, maxHeight: .infinity)
       } else if coordinator.currentCategory == nil {
-        LibraryWelcomeView { showingAddCategory = true }
+        ContentUnavailableView {
+          Label("No source open", systemImage: "server.rack")
+        } description: {
+          Text("Choose a source to browse its folders.")
+        } actions: {
+          Button("Show Sources") { showingSourceOverview = true }
+            .buttonStyle(MyraButtonStyle(prominent: true))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else if coordinator.entries.isEmpty {
         ContentUnavailableView("Empty Directory", systemImage: "folder")
           .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -429,99 +366,137 @@ struct LibraryView: View {
     }
   }
 
-  private var searchAndNavigationBar: some View {
-    HStack(spacing: 6) {
-      if !showingGlobalResults {
-        Button("Sources") { showingSourceOverview = true }
-          .help("Show all sources")
-          .accessibilityLabel("Back to Sources")
-        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
-        Button {
-          Task { await coordinator.navigateUp() }
-        } label: {
-          Image(systemName: "chevron.left")
-        }
-        .help("Go to the parent folder")
-        .accessibilityLabel("Go to the parent folder")
-        .disabled(
-          coordinator.currentURL == coordinator.currentCategory?.rootURL?.standardizedDirectoryURL)
-        if let category = coordinator.currentCategory, let root = category.rootURL {
-          Button(category.name) { Task { await coordinator.navigate(to: root) } }
-          ForEach(breadcrumbs(root: root, current: coordinator.currentURL), id: \.url) { crumb in
-            Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
-            Button(crumb.name) { Task { await coordinator.navigate(to: crumb.url) } }
-          }
-        } else {
-          Text("No category selected").foregroundStyle(.secondary)
-        }
-      } else {
+  /// The row under the header, as the preview's `.crumbs`: where you are on the left; counts,
+  /// search scope, layout, reload and download on the right. The shell's field is the search box.
+  private var browseBar: some View {
+    HStack(spacing: 8) {
+      if showingGlobalResults {
         Image(systemName: "network").foregroundStyle(accent.color)
-        Text(coordinator.isGlobalSearching ? "Searching index…" : "All directories • Local index")
-          .foregroundStyle(.secondary)
+        Text(coordinator.isGlobalSearching ? "Searching index…" : "All sources · Local index")
+          .foregroundStyle(MyraColor.text2)
         if coordinator.isGlobalSearching {
-          Button("Cancel", systemImage: "xmark.circle") { coordinator.cancelGlobalSearch() }
+          Button("Cancel") { coordinator.cancelGlobalSearch() }
+            .buttonStyle(MyraButtonStyle())
         }
         if !coordinator.globalSearchFailures.isEmpty {
-          Menu {
+          Menu("\(coordinator.globalSearchFailures.count) unavailable") {
             ForEach(coordinator.globalSearchFailures) { failure in
               Text("\(failure.categoryName): \(failure.summary)")
             }
-          } label: {
-            Label(
-              "\(coordinator.globalSearchFailures.count) unavailable",
-              systemImage: "exclamationmark.triangle.fill")
           }
-          .foregroundStyle(.orange)
+          .menuIndicator(.hidden).fixedSize().foregroundStyle(.orange)
         }
+      } else {
+        IconButton(systemName: "chevron.left", help: "Go to the parent folder") {
+          Task { await coordinator.navigateUp() }
+        }
+        .disabled(
+          coordinator.currentURL == coordinator.currentCategory?.rootURL?.standardizedDirectoryURL)
+        crumbs
       }
       Spacer(minLength: 12)
+      Text(browseCountText)
+        .foregroundStyle(MyraColor.text2)
+        .monospacedDigit()
+        .lineLimit(1)
       if searchScope == .global {
         Toggle("Fuzzy", isOn: $coordinator.fuzzyGlobalSearch)
           .toggleStyle(.button)
+          .controlSize(.small)
           .help("Match typos and reordered title words. Turn off for exact matching.")
           .accessibilityLabel("Fuzzy global search")
       }
-      Picker("Search Scope", selection: Binding(get: { searchScope }, set: { searchScope = $0 })) {
-        ForEach(SearchScope.allCases, id: \.self) { scope in Text(scope.rawValue).tag(scope) }
-      }
-      .pickerStyle(.segmented)
-      .labelsHidden()
-      .frame(width: 150)
-      HStack(spacing: 6) {
-        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-        TextField(
-          searchScope == .global ? "Search all video files" : "Search files and folders",
-          text: Binding(get: { searchText }, set: { searchText = $0 })
-        )
-        .textFieldStyle(.plain)
-        .focused($searchFieldFocused)
-        .onSubmit {
-          if searchScope == .global { coordinator.startGlobalSearch(query: searchText) }
-        }
-        if !searchText.isEmpty {
-          Button {
-            searchText = ""
-            if searchScope == .global { coordinator.clearGlobalSearch() }
-          } label: {
-            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-          }
-          .buttonStyle(.plain)
-        }
-      }
-      .padding(.horizontal, 9)
-      .frame(width: 240, height: 28)
-      .background(
-        Color(nsColor: .textBackgroundColor),
-        in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+      SegmentedControl(
+        options: [
+          SegmentOption(value: SearchScope.current, title: "This folder"),
+          SegmentOption(value: SearchScope.global, title: "All sources"),
+        ],
+        selection: Binding(get: { searchScope }, set: { searchScope = $0 })
       )
-      .overlay {
-        RoundedRectangle(cornerRadius: 7, style: .continuous)
-          .stroke(.secondary.opacity(0.22), lineWidth: 1)
+      .accessibilityLabel("Search scope")
+      if !showingGlobalResults {
+        SegmentedControl(
+          options: SourceBrowserLayout.allCases.map { SegmentOption(value: $0, title: $0.title) },
+          selection: Binding(
+            get: { SourceBrowserLayout.resolve(stored: storedLayout, hasVideos: hasVideoEntries) },
+            set: { storedLayout = $0.rawValue })
+        )
+        .help("Show files as a list or a grid")
+        .accessibilityLabel("File layout")
+      }
+      IconButton(
+        systemName: "arrow.clockwise",
+        help: showingGlobalResults ? "Refresh search" : "Reload this folder"
+      ) {
+        if showingGlobalResults {
+          coordinator.startGlobalSearch(query: searchText)
+        } else if let category = coordinator.currentCategory {
+          Task { await coordinator.selectCategory(category) }
+        }
+      }
+      .disabled(
+        showingGlobalResults
+          ? searchText.trimmingCharacters(in: .whitespacesAndNewlines).count < 3
+            || coordinator.isGlobalSearching
+          : coordinator.currentCategory == nil || coordinator.isLoading)
+      Button {
+        if showingGlobalResults {
+          coordinator.downloadGlobalSearchSelection()
+        } else {
+          coordinator.downloadSelection()
+        }
+      } label: {
+        Label("Download Selected", systemImage: "arrow.down.circle")
+      }
+      .buttonStyle(MyraButtonStyle(prominent: true))
+      .disabled(
+        showingGlobalResults
+          ? coordinator.globalSearchSelection.isEmpty || coordinator.isEnqueueingGlobalDownloads
+          : coordinator.selection.isEmpty || coordinator.isScanning)
+    }
+    .font(.system(size: 13))
+    .padding(.horizontal, 26)
+    .padding(.top, 4)
+    .padding(.bottom, 10)
+  }
+
+  /// "Sources › Category › folder", with the current folder in bold.
+  @ViewBuilder private var crumbs: some View {
+    HStack(spacing: 6) {
+      Button("Sources") { showingSourceOverview = true }
+        .buttonStyle(.plain)
+        .foregroundStyle(MyraColor.text2)
+        .help("Show all sources")
+        .accessibilityLabel("Back to Sources")
+      if let category = coordinator.currentCategory, let root = category.rootURL {
+        let trail = breadcrumbs(root: root, current: coordinator.currentURL)
+        Text("›").foregroundStyle(MyraColor.text3)
+        Button(category.name) { Task { await coordinator.navigate(to: root) } }
+          .buttonStyle(.plain)
+          .fontWeight(trail.isEmpty ? .semibold : .regular)
+          .foregroundStyle(trail.isEmpty ? MyraColor.text : MyraColor.text2)
+        ForEach(Array(trail.enumerated()), id: \.element.url) { offset, crumb in
+          Text("›").foregroundStyle(MyraColor.text3)
+          Button(crumb.name) { Task { await coordinator.navigate(to: crumb.url) } }
+            .buttonStyle(.plain)
+            .fontWeight(offset == trail.count - 1 ? .semibold : .regular)
+            .foregroundStyle(offset == trail.count - 1 ? MyraColor.text : MyraColor.text2)
+        }
       }
     }
-    .buttonStyle(.plain)
-    .padding(.horizontal, 12)
-    .frame(minWidth: 480, idealWidth: 720, maxWidth: .infinity)
+    .lineLimit(1)
+  }
+
+  /// "12 of 40 items · 2 selected", or the global match count.
+  private var browseCountText: String {
+    if showingGlobalResults {
+      let selected = coordinator.globalSearchSelection.count
+      return "\(coordinator.globalSearchResults.count) matching videos"
+        + (selected > 0 ? " · \(selected) selected" : "")
+    }
+    let selected = coordinator.selection.count
+    return "\(visibleEntries.count) of \(coordinator.entries.count) items"
+      + (selected > 0 ? " · \(selected) selected" : "")
   }
 
   private var showingGlobalResults: Bool {
@@ -839,71 +814,6 @@ private struct CategoryEmptyState: View {
   }
 }
 
-private struct LibraryWelcomeView: View {
-  @Environment(\.myraAccent) private var accent
-  let addCategory: () -> Void
-
-  var body: some View {
-    VStack(spacing: 22) {
-      ZStack {
-        RoundedRectangle(cornerRadius: 22, style: .continuous)
-          .fill(accent.color.opacity(0.12))
-        RoundedRectangle(cornerRadius: 22, style: .continuous)
-          .stroke(accent.color.opacity(0.22), lineWidth: 1)
-        Image(systemName: "arrow.down.to.line.compact")
-          .font(.system(size: 40, weight: .medium))
-          .foregroundStyle(accent.color)
-      }
-      .frame(width: 88, height: 88)
-
-      VStack(spacing: 8) {
-        Text("Your media library starts here")
-          .font(.system(size: 25, weight: .semibold))
-        Text("Connect an ISP directory, explore its folders, and send any selection to aria2.")
-          .foregroundStyle(.secondary)
-          .multilineTextAlignment(.center)
-          .frame(maxWidth: 470)
-      }
-
-      Button(action: addCategory) {
-        Label("Add your first category", systemImage: "plus")
-          .padding(.horizontal, 6)
-      }
-      .buttonStyle(.borderedProminent)
-      .controlSize(.large)
-
-      HStack(spacing: 22) {
-        WelcomeFeature(icon: "folder", title: "Browse folders")
-        WelcomeFeature(icon: "arrow.triangle.branch", title: "Keep hierarchy")
-        WelcomeFeature(icon: "bolt", title: "aria2 powered")
-      }
-    }
-    .padding(42)
-    .frame(maxWidth: 620)
-    .background(
-      Color(nsColor: .controlBackgroundColor),
-      in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-    )
-    .overlay {
-      RoundedRectangle(cornerRadius: 18, style: .continuous)
-        .stroke(.secondary.opacity(0.16), lineWidth: 1)
-    }
-    .padding(36)
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
-  }
-}
-
-private struct WelcomeFeature: View {
-  let icon: String
-  let title: String
-
-  var body: some View {
-    Label(title, systemImage: icon)
-      .font(.system(size: 12.5, weight: .medium))
-      .foregroundStyle(.secondary)
-  }
-}
-
 struct ToastView: View {
   let message: String
 
@@ -919,36 +829,6 @@ struct ToastView: View {
       .overlay { Capsule(style: .continuous).stroke(.secondary.opacity(0.2), lineWidth: 1) }
       .shadow(color: .black.opacity(0.16), radius: 10, y: 3)
   }
-}
-
-struct CodexBackground: View {
-  @Environment(\.colorScheme) private var colorScheme
-
-  var body: some View {
-    ZStack {
-      NativeVisualEffectView()
-      Group {
-        if colorScheme == .dark {
-          Color(red: 0.025, green: 0.028, blue: 0.042).opacity(0.66)
-        } else {
-          Color.white.opacity(0.56)
-        }
-      }
-    }
-    .ignoresSafeArea()
-  }
-}
-
-private struct NativeVisualEffectView: NSViewRepresentable {
-  func makeNSView(context: Context) -> NSVisualEffectView {
-    let view = NSVisualEffectView()
-    view.material = .underWindowBackground
-    view.blendingMode = .behindWindow
-    view.state = .active
-    return view
-  }
-
-  func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
 private struct CategoryEditorSheet: View {
@@ -1033,27 +913,6 @@ private enum DurationFormatter {
       return String(format: "%d:%02d:%02d", value / 3600, (value % 3600) / 60, value % 60)
     }
     return String(format: "%d:%02d", value / 60, value % 60)
-  }
-}
-
-struct HomeToolbarTitle: View {
-  @ObservedObject var store: EntertainmentStore
-  var body: some View {
-    HStack(spacing: 10) {
-      Text("Home").font(.headline)
-      Text("\(store.catalogue.count.formatted()) titles").font(.caption).foregroundStyle(.secondary)
-    }
-  }
-}
-
-extension ToolbarContent {
-  /// A continuous native toolbar owns the material instead of separate title/action capsules.
-  @ToolbarContentBuilder func continuousHeaderBackground() -> some ToolbarContent {
-    if #available(macOS 26.0, *) {
-      self.sharedBackgroundVisibility(.hidden)
-    } else {
-      self
-    }
   }
 }
 
