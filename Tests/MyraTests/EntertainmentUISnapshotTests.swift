@@ -153,6 +153,20 @@ final class EntertainmentUISnapshotTests: XCTestCase {
       RootView(coordinator: coordinator).modelContainer(container),
       width: 1100, height: 850, name: "home-native-toolbar.png")
     try await renderHosted(
+      RootView(coordinator: coordinator).modelContainer(container),
+      width: 1000, height: 650, name: "home-minimum-light.png", light: true)
+    try await renderHosted(
+      RootView(coordinator: coordinator).modelContainer(container),
+      width: 1000, height: 650, name: "home-minimum-dark.png")
+    if let settings = coordinator.settings {
+      try await renderHosted(
+        SettingsView(coordinator: coordinator, settings: settings).modelContainer(container),
+        width: 760, height: 650, name: "settings-native-light.png", light: true)
+      try await renderHosted(
+        SettingsView(coordinator: coordinator, settings: settings).modelContainer(container),
+        width: 760, height: 650, name: "settings-native-dark.png")
+    }
+    try await renderHosted(
       RootView(coordinator: coordinator).modelContainer(container), width: 1100,
       height: 850, name: "home-header-scrolled.png", scroll: true)
     try await renderHosted(
@@ -161,6 +175,9 @@ final class EntertainmentUISnapshotTests: XCTestCase {
     try await renderHosted(
       EmbeddedPlayerView(player: coordinator.player), width: 1000, height: 650,
       name: "player-controls.png")
+    try await renderHosted(
+      EmbeddedPlayerView(player: coordinator.player),
+      width: 520, height: 650, name: "player-compact.png")
     try await renderHosted(
       HomeView(coordinator: coordinator, store: coordinator.entertainment), width: 780,
       height: 900, name: "home-light.png", light: true)
@@ -285,8 +302,7 @@ final class EntertainmentUISnapshotTests: XCTestCase {
       window.displayIfNeeded()
       XCTAssertGreaterThan(scrolling.contentView.bounds.origin.y, 200)
       XCTAssertEqual(host.bounds.height, originalHeight, accuracy: 1)
-      // The shell draws its header inside the content, so the native toolbar is hidden here; the
-      // unchanged host height above is the fixed-header check.
+      // Scrolling content must not resize the host or move the native toolbar.
     }
     XCTAssertEqual(host.bounds.width, width, accuracy: 1)
     // SwiftUI installs a native toolbar on RootView; its titlebar inset is part of the hosting bounds.

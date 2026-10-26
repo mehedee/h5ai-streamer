@@ -22,15 +22,15 @@ enum MyraRadius {
 /// The accent is deliberately absent: read it from `\.myraAccent` so the Settings choice applies.
 /// Status colours are system colours and are used directly by `StatusPill`.
 enum MyraColor {
-  static let window = dynamic((0xF6F6F8, 1), (0x1C1C1F, 1))
-  static let content = dynamic((0xFFFFFF, 1), (0x161618, 1))
-  static let sidebar = dynamic((0xECECF1, 0.78), (0x28282E, 0.72))
-  static let glass = dynamic((0xFFFFFF, 0.72), (0x323238, 0.66))
-  static let glassStrong = dynamic((0xFFFFFF, 0.9), (0x2C2C32, 0.94))
+  static let window = Color(nsColor: .windowBackgroundColor)
+  static let content = Color(nsColor: .textBackgroundColor)
+  static let sidebar = Color(nsColor: .controlBackgroundColor)
+  static let glass = Color(nsColor: .controlBackgroundColor)
+  static let glassStrong = Color(nsColor: .windowBackgroundColor)
 
-  static let text = dynamic((0x1D1D1F, 1), (0xF5F5F7, 1))
-  static let text2 = dynamic((0x6E6E73, 1), (0xA1A1A8, 1))
-  static let text3 = dynamic((0x9A9AA0, 1), (0x6F6F76, 1))
+  static let text = Color.primary
+  static let text2 = Color.secondary
+  static let text3 = Color(nsColor: .secondaryLabelColor)
 
   static let fill = dynamic((0x000000, 0.045), (0xFFFFFF, 0.06))
   static let fill2 = dynamic((0x000000, 0.08), (0xFFFFFF, 0.11))

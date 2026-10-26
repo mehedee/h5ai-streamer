@@ -2,6 +2,35 @@ import Combine
 import Foundation
 import OSLog
 
+/// Observable refresh lifecycle. Completion is distinct from cancellation and partial failure.
+enum IndexRefreshState: Equatable {
+  case notScanned, noSources, refreshing, paused, completed, partial, failed, cancelled
+
+  var title: String {
+    switch self {
+    case .notScanned: "Library not yet scanned"
+    case .noSources: "No library sources"
+    case .refreshing: "Indexing library"
+    case .paused: "Indexing paused"
+    case .completed: "Library refreshed"
+    case .partial: "Refresh completed with issues"
+    case .failed: "Refresh failed"
+    case .cancelled: "Indexing cancelled"
+    }
+  }
+
+  var symbol: String {
+    switch self {
+    case .refreshing: "arrow.triangle.2.circlepath"
+    case .paused: "pause.circle"
+    case .completed: "checkmark.circle"
+    case .partial, .failed: "exclamationmark.triangle"
+    case .cancelled: "stop.circle"
+    case .notScanned, .noSources: "externaldrive"
+    }
+  }
+}
+
 @MainActor
 final class LibraryController: ObservableObject {
   @Published private(set) var isRefreshing = false
@@ -21,8 +50,32 @@ final class LibraryController: ObservableObject {
       }
     }
   }
-  private(set) var roots: [GlobalSearchRoot] = []
+  @Published private(set) var roots: [GlobalSearchRoot] = []
   func setRoots(_ roots: [GlobalSearchRoot]) { self.roots = roots }
+
+  @Published private var lastOutcome: IndexRefreshState = .notScanned
+  var refreshState: IndexRefreshState {
+    if isRefreshing { return isPaused ? .paused : .refreshing }
+    if roots.isEmpty { return .noSources }
+    if errorMessage != nil { return .failed }
+    return lastOutcome
+  }
+  var statusTitle: String { refreshState.title }
+  var statusSymbol: String { refreshState.symbol }
+  var hasIssues: Bool { refreshState == .partial || refreshState == .failed }
+  var statusDetail: String {
+    switch refreshState {
+    case .refreshing, .paused:
+      return
+        "\(progress.foldersVisited.formatted()) folders · \(progress.matchesFound.formatted()) videos"
+    case .cancelled: return "Saved results retained. Refresh to continue."
+    case .partial: return "\(failures.count) source(s) with issues. Saved results retained."
+    case .failed: return "Saved library retained. Check the source and retry."
+    case .noSources: return "Add a source to build your library."
+    case .notScanned: return "Refresh to index your sources."
+    case .completed: return "Your saved library is available."
+    }
+  }
 
   func loadFolderRows() async {
     do { folderRows = try await database().folderRows(roots: roots) } catch {
@@ -43,6 +96,7 @@ final class LibraryController: ObservableObject {
   @Published var errorMessage: String?
   @Published var completionMessage: String?
   private(set) var index: LibraryIndex?
+  private let directoryService: DirectoryService
   private var openTask: Task<LibraryIndex, Error>?
   private var refreshTask: Task<Void, Never>?
   private var refreshID = UUID()
@@ -80,14 +134,17 @@ final class LibraryController: ObservableObject {
     guard pendingIndexNotification == nil else { return }
     pendingIndexNotification = Task { [weak self] in
       try? await Task.sleep(for: .milliseconds(delay))
-      guard let self else { return }
+      guard let self, !Task.isCancelled else { return }
       self.pendingIndexNotification = nil
       self.lastIndexNotification = .now
       self.didUpdate?()
     }
   }
 
-  init(index: LibraryIndex? = nil) { self.index = index }
+  init(index: LibraryIndex? = nil, directoryService: DirectoryService = DirectoryService()) {
+    self.index = index
+    self.directoryService = directoryService
+  }
 
   func database() async throws -> LibraryIndex {
     if let index { return index }
@@ -121,6 +178,8 @@ final class LibraryController: ObservableObject {
     isRefreshing = true
     progress = GlobalSearchProgress(sourcesTotal: roots.count)
     errorMessage = nil
+    completionMessage = nil
+    lastProgressUpdate = .distantPast
     refreshTask = Task(priority: .utility) { [weak self] in
       await previous?.value
       guard !Task.isCancelled, self?.refreshID == id else { return }
@@ -139,6 +198,8 @@ final class LibraryController: ObservableObject {
         changed = try await index.revision() != previousRevision
         lastRefresh = try await index.lastRefresh()
         folderRows = try await index.folderRows(roots: roots)
+        try Task.checkCancellation()
+        guard refreshID == id else { return }
         let selected: [IndexScope]
         if let scopes {
           selected = IndexScope.compact(scopes)
@@ -151,12 +212,19 @@ final class LibraryController: ObservableObject {
         if selected.isEmpty {
           isRefreshing = false
           refreshTask = nil
-          if manual { completionMessage = "All scheduled folders are up to date." }
+          lastOutcome = roots.isEmpty ? .noSources : (failures.isEmpty ? .completed : .partial)
+          if manual {
+            completionMessage =
+              roots.isEmpty
+              ? "Add a source before refreshing the library."
+              : "No folders are due for a scheduled refresh. Use Refresh Library to check now."
+          }
           if try await index.revision() != previousRevision { notifyIndexUpdated() }
           return
         }
         failures = []
-        let indexer = LibraryIndexer(directoryService: DirectoryService())
+        progress = GlobalSearchProgress(sourcesTotal: Set(selected.map { $0.root.id }).count)
+        let indexer = LibraryIndexer(directoryService: directoryService)
         let started = Date.now
         let snapshot = try await indexer.refresh(
           roots: roots, index: index, generation: id, scopes: selected, policies: policies,
@@ -174,6 +242,7 @@ final class LibraryController: ObservableObject {
             }
           },
           onCommit: { [weak self] in
+            // A committed chunk belongs to the published index even if its scan was cancelled.
             await MainActor.run { self?.notifyIndexUpdated() }
           }
         ) {
@@ -194,6 +263,10 @@ final class LibraryController: ObservableObject {
         changed = try await index.revision() != previousRevision
         progress = snapshot.progress
         failures = snapshot.failures
+        lastOutcome =
+          failures.isEmpty
+          ? .completed
+          : (snapshot.progress.foldersVisited > 0 ? .partial : .failed)
         lastRefresh = try await index.lastRefresh()
         if manual {
           let suffix =
@@ -204,9 +277,11 @@ final class LibraryController: ObservableObject {
         }
       } catch is CancellationError {
         // Full chunks already committed to the main index remain visible.
+        if refreshID == id { lastOutcome = .cancelled }
       } catch {
         guard refreshID == id else { return }
         errorMessage = error.localizedDescription
+        lastOutcome = .failed
         if manual { completionMessage = "Refresh failed: \(error.localizedDescription)" }
       }
       guard refreshID == id else { return }
@@ -219,6 +294,9 @@ final class LibraryController: ObservableObject {
   }
 
   func cancel() {
+    guard isRefreshing else { return }
+    lastOutcome = .cancelled
+    completionMessage = nil
     let previous = refreshTask
     previous?.cancel()
     refreshID = UUID()
@@ -229,6 +307,7 @@ final class LibraryController: ObservableObject {
       await previous?.value
       guard let self, self.refreshID == id else { return }
       self.refreshTask = nil
+      await self.loadFolderRows()
       // Any committed chunks already scheduled their catalogue reload notification.
     }
   }

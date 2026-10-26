@@ -908,9 +908,12 @@ final class PlayerWorkflowTests: XCTestCase {
 
   @MainActor private func clickFullscreen(in host: NSView, window: NSWindow) throws {
     host.layoutSubtreeIfNeeded()
+    // The fullscreen action is in the bottom-right utility group. XCTest's in-process
+    // SwiftUI tree omits these controls, so click the expected visible position.
+    let panelWidth = min(CGFloat(920), host.bounds.width - 48)
     let point = NSPoint(
-      x: host.bounds.maxX - 22,
-      y: host.isFlipped ? 28 : host.bounds.maxY - 28)
+      x: host.bounds.midX + panelWidth / 2 - 42,
+      y: host.isFlipped ? host.bounds.maxY - 72 : host.bounds.minY + 72)
     let location = host.convert(point, to: nil)
     for kind in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
       let event = try XCTUnwrap(

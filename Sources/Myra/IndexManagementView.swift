@@ -18,6 +18,12 @@ struct IndexManagementView: View {
         Spacer()
         Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
       }
+      if library.roots.isEmpty {
+        ContentUnavailableView(
+          "No sources", systemImage: "server.rack",
+          description: Text(
+            "Add a directory source in Sources, then return here to manage its index."))
+      }
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 10) {
           ForEach(library.roots) { root in
@@ -45,24 +51,48 @@ struct IndexManagementView: View {
         }
       }
       HStack {
-        Button("Refresh due folders") { library.refreshDue() }.disabled(library.isRefreshing)
+        Button("Refresh due folders") { library.refreshDue() }
+          .disabled(library.isRefreshing || library.roots.isEmpty)
+          .help("Checks folders whose Daily or Weekly schedule is due")
         Spacer()
         Button("Full rescan…") { confirmFull = true }.disabled(
           selected.isEmpty || library.isRefreshing)
         Button("Refresh selected") { refresh(full: false) }
           .buttonStyle(.borderedProminent).disabled(selected.isEmpty || library.isRefreshing)
       }
-      if library.isRefreshing {
-        HStack {
-          Text(
-            library.isPaused
-              ? "Paused — your saved library is available"
-              : "Refreshing — your saved library is available")
+      VStack(alignment: .leading, spacing: 8) {
+        HStack(spacing: 10) {
+          if library.isRefreshing && !library.isPaused {
+            ProgressView().controlSize(.small)
+          } else {
+            Image(systemName: library.statusSymbol)
+              .foregroundStyle(library.hasIssues ? Color.orange : Color.secondary)
+          }
+          VStack(alignment: .leading, spacing: 3) {
+            Text(library.statusTitle).font(.headline)
+            Text(library.statusDetail).foregroundStyle(.secondary)
+            if library.isRefreshing {
+              Text(
+                "\(library.progress.sourcesCompleted) of \(library.progress.sourcesTotal) sources finished"
+              )
+              .foregroundStyle(.secondary)
+            }
+          }
           Spacer()
-          Button(library.isPaused ? "Continue" : "Pause") { library.isPaused.toggle() }
-          Button("Cancel") { library.cancel() }
-        }.font(.callout)
+          if library.isRefreshing {
+            Button(library.isPaused ? "Resume" : "Pause") { library.isPaused.toggle() }
+              .help("Pause takes effect after the current folder requests finish")
+            Button("Cancel") { library.cancel() }
+          }
+        }
+        if let error = library.errorMessage {
+          Text(error).foregroundStyle(.orange).textSelection(.enabled)
+        }
       }
+      .font(.callout)
+      .accessibilityElement(children: .contain)
+      .padding(12)
+      .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
       Text(
         "Refresh selected includes subfolders and respects manual-only branches. Full rescan checks every folder in the selected scope, including manual-only branches."
       )
@@ -77,7 +107,9 @@ struct IndexManagementView: View {
   }
 
   private func refresh(full: Bool) {
-    let scopes = library.folderRows.filter { selected.contains($0.id) }.map(\.scope)
+    let rootScopes = library.roots.map { IndexScope(root: $0, folder: $0.url) }
+    let scopes = IndexScope.compact(
+      (library.folderRows.map(\.scope) + rootScopes).filter { selected.contains($0.id) })
     library.refreshSelected(scopes, full: full)
   }
 
@@ -115,7 +147,7 @@ struct IndexManagementView: View {
       ) { Text(name).lineLimit(1) }.toggleStyle(.checkbox)
         .help(row.scope.folder.absoluteString)
       Spacer()
-      Text("\(row.files) files").font(.caption).foregroundStyle(.secondary)
+      Text("\(row.files.formatted()) files").font(.caption).foregroundStyle(.secondary)
       Text(row.checked?.formatted(date: .abbreviated, time: .shortened) ?? "Never checked")
         .font(.caption).foregroundStyle(.secondary)
       Picker(
@@ -128,6 +160,7 @@ struct IndexManagementView: View {
           Optional<IndexSchedule>.none)
         ForEach(IndexSchedule.allCases, id: \.self) { Text($0.rawValue).tag(Optional($0)) }
       }.labelsHidden().frame(width: 170)
+        .accessibilityLabel("Refresh schedule for \(name)")
     }
   }
 }

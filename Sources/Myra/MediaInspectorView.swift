@@ -169,20 +169,14 @@ struct LibraryIndexStatusView: View {
         Spacer()
         Button("Cancel") { library.cancel() }
       } else {
-        Image(
-          systemName: library.failures.isEmpty && library.errorMessage == nil
-            ? "externaldrive.badge.checkmark" : "exclamationmark.triangle")
-        if let error = library.errorMessage {
-          Text(error).foregroundStyle(.orange)
-        } else if let refreshed = library.lastRefresh {
-          Text("Index updated \(refreshed.formatted(date: .abbreviated, time: .shortened))")
-        } else {
-          Text("Library index has not been refreshed")
-        }
+        Label(library.statusTitle, systemImage: library.statusSymbol)
+          .foregroundStyle(library.hasIssues ? Color.orange : Color.secondary)
+        Text(library.statusDetail).lineLimit(1)
         Spacer()
       }
       Menu {
-        Button("Refresh due folders", action: refresh)
+        Button("Refresh Now", action: refresh)
+        Button("Refresh Due Folders") { library.refreshDue() }
         Button("Choose folders…") { library.showIndexManagement = true }
         Button("Full rescan…") { library.showIndexManagement = true }
       } label: {
@@ -240,9 +234,8 @@ struct MediaSettingsSection: View {
           })
       }
       SettingsRow(
-        title: "Last refresh",
-        detail: library.lastRefresh?.formatted(date: .abbreviated, time: .shortened)
-          ?? "Not yet refreshed"
+        title: library.statusTitle,
+        detail: library.statusDetail
       ) {
         Button("Refresh Now", action: refresh)
           .buttonStyle(MyraButtonStyle())
@@ -255,7 +248,7 @@ struct MediaSettingsSection: View {
       if library.isRefreshing {
         SettingsRow(
           title: "Indexing in progress",
-          detail: "Home updates when the scan finishes; your library stays available"
+          detail: "Home updates as results are saved; your library stays available"
         ) {
           HStack(spacing: 6) {
             Button(library.isPaused ? "Continue" : "Pause") { library.isPaused.toggle() }

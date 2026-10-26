@@ -6,3 +6,4 @@
 - Preserve personal library data, explicit download paths and credentials across updates. Profile migration is explicit and retains original data for rollback.
 - AI and subtitle network requests remain user initiated. Do not run paid cloud inference without explicit authorization.
 - Verify recommendation constraints, grounded title identities and runtime budgets with isolated fixtures. Report native platform coverage separately from host/headless tests.
+- Engineering progress pages, previews and evidence stay local in the ignored `docs/artifacts/` directory and are never committed.

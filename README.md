@@ -144,6 +144,7 @@ A search/pick/plan may use two model generations (intent extraction and results)
 - Three-character minimum, local typo tolerance, reordered tokens, Unicode normalization, filenames and matched metadata aliases, deterministic ordering, and 500-result pages.
 - SQLite precomputed search grams bound candidate retrieval; broad queries return the highest-ranked candidates from a bounded set.
 - Home opens from the saved index while refreshes scan changes. Valid video records are written to the main index in 500-record chunks while scanning continues. A file or directory failure is reported without stopping other work; prior rows covered by failed paths are retained. Stale-row reconciliation runs only after traversal completes, while cancellation keeps committed chunks and skips reconciliation. Database/storage failures still stop the refresh.
+- Refresh Library checks sources immediately; Refresh Due Folders applies the saved schedules. Status distinguishes complete, partial, failed, cancelled and paused scans.
 - Per-source/folder schedules and manual selective refresh, cached listing validators where supported, force rescans, cancellation, progress, and unavailable-source guidance.
 - The footer refresh control opens indexing options. Low Impact indexing reduces concurrency and UI update churn.
 - Separate personal history survives rebuilding the index. Schema 4 adds search documents and backs up an older database before migration.
@@ -160,7 +161,7 @@ Settings are grouped into six visible tabs: General, Library, Downloads, Playbac
 ## Playback and subtitles
 
 - Bundled VLC playback with seek/resume, Previous/Next, pause/stop, volume/mute capped at 100%, speed, audio/subtitle tracks, offsets, chapters, aspect/crop, deinterlace, and repeat.
-- Transport controls centred, options left, volume right; compact glass header and controls preserve video space.
+- A separate timeline and spacious transport/volume groups adapt to the window width. Audio, subtitle, speed and video choices live in Playback Options; repeat, Episodes / Files, markers, preferences and Stop remain in More playback actions.
 - Episodes / Files and grouped versions; auto-next follows natural episode/file order. The last item returns to Library; repeat retains the current item.
 - Native fullscreen hides chrome and shows controls on interaction. Space toggles playback; arrows seek/adjust volume; Escape exits. Browser position and window chrome restore on return.
 - English track defaults, saved language preferences, manual track overrides, intro/outro markers, optional automatic skipping, and alternate-version recovery.
@@ -171,7 +172,7 @@ Settings are grouped into six visible tabs: General, Library, Downloads, Playbac
 
 ## Appearance and downloads
 
-- Native translucent headers and System/Light/Dark app appearance.
+- Native macOS title bars, window controls, toolbar, selectable sidebar, Settings tabs, switches and pickers. System/Light/Dark appearance applies to the main and Settings windows.
 - Four user-selectable icon families: **Signature, Cinema, Orbit, Minimal**, each with Light, Dark, and Glass variants or Follow System.
 - A real layered primary icon supports modern system appearances. Runtime selection changes the Dock icon and persists; Finder retains the signed primary icon. Myra never rewrites the installed signed bundle.
 - Recursive download selection preserves directory hierarchy and delegates to aria2. Existing completed files are preserved; matching partial downloads resume.
@@ -189,6 +190,8 @@ zsh Scripts/verify-update.sh
 ```
 
 Verification formats/lints Swift, tests the package, builds Release, creates `dist/Myra.dmg`, verifies its signature and disk image, and prints a SHA-256 checksum. Builds run in the foreground. `MYRA_NATIVE_WINDOW_TESTS=1` enables real window/fullscreen tests. With ffmpeg, synthetic playback fixtures are generated; serve `.build/verification/workflow` locally and set `MYRA_WORKFLOW_MEDIA_ROOT` to enable streaming workflow checks. Tests use isolated stores and mock AI providers, not paid cloud inference. Optional live metadata/subtitle and large benchmarks are explicitly gated.
+
+For a foreground development build and launch, use `./script/build_and_run.sh`. Add `--isolated` to stage a separate development app and profile under `.build/native-polish`, or `--build-only` to stop after building. Isolated profiles skip personal metadata credentials. Normal metadata Keychain reads run off the UI thread. These development apps are ad-hoc signed and are not release packages.
 
 `zsh Scripts/build-dmg.sh` builds the DMG independently and preserves `dist/Myra.previous.dmg`. Original icon sources are in `Resources/MyraIcons`; `Scripts/generate-myra-icons.py` regenerates native icon exports.
 

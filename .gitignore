@@ -8,3 +8,4 @@ Package.resolved
 *.aria2
 /Vendor/VLCKit.xcframework/
 docs/private-roadmap.md
+docs/artifacts/

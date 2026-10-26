@@ -6,6 +6,7 @@ struct LibraryPlayerContainer: View {
   @ObservedObject var coordinator: AppCoordinator
   @ObservedObject private var player: EmbeddedPlayerModel
   @ObservedObject private var inspector: MediaInspectorModel
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   init(coordinator: AppCoordinator) {
     self.coordinator = coordinator
@@ -36,7 +37,7 @@ struct LibraryPlayerContainer: View {
         }
       }
     }
-    .animation(.snappy(duration: 0.22), value: inspector.selected?.id)
+    .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: inspector.selected?.id)
   }
 }
 
@@ -48,6 +49,8 @@ struct EmbeddedPlayerView: View {
   @State private var showEpisodeBrowser = false
   @State private var showPreferences = false
   @State private var showMarkers = false
+  @State private var showTrackOptions = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     streamObserver { stream in
@@ -104,7 +107,7 @@ struct EmbeddedPlayerView: View {
     .opacity(visible ? 1 : 0)
     .allowsHitTesting(visible)
     .accessibilityHidden(!visible)
-    .animation(.easeInOut(duration: 0.18), value: visible)
+    .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: visible)
   }
 
   private var entryName: String { player.media?.entry.name ?? "" }
@@ -117,6 +120,7 @@ struct EmbeddedPlayerView: View {
         Image(systemName: "chevron.left")
       }
       .buttonStyle(PlayerGlyphStyle())
+      .accessibilityLabel("Back to Library")
       .playbackHelp("Back to Library", fullscreen: player.isFullscreen)
       Text(player.media.map { MediaIdentity.parse(filename: $0.entry.name).title } ?? "Player")
         .font(.system(size: 14, weight: .bold))
@@ -191,137 +195,163 @@ struct EmbeddedPlayerView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 
-  /// The bottom glass bar: scrub bar on top, then the transport, time and secondary controls.
+  /// Timeline and grouped transport controls, with secondary actions kept in native menus.
   private func controlsBar(_ stream: PlayerStreamStatus) -> some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(spacing: 12) {
+      HStack {
+        Button {
+          showRemaining.toggle()
+        } label: {
+          Text(
+            PlayerTime.string(
+              player.isScrubbing ? player.scrubPosition * player.duration : player.elapsed)
+              + " / " + (showRemaining ? "−" : "")
+              + PlayerTime.string(
+                showRemaining ? max(0, player.duration - player.elapsed) : player.duration)
+          )
+          .monospacedDigit()
+        }
+        .buttonStyle(.plain)
+        .help("Toggle duration and remaining time")
+        .accessibilityLabel("Playback time")
+        Spacer()
+        if !player.isSeekable {
+          Text("Seeking unavailable")
+        } else if player.speed != 1 {
+          Text(String(format: "%.2g×", player.speed))
+        }
+      }
+      .font(.callout)
+      .foregroundStyle(.white.opacity(0.85))
+
       VLCSeekBar(
         model: player,
         bufferedFraction: PlayerScrubLayout.bufferedFraction(
           position: player.position, bufferedSeconds: stream.bufferedSeconds,
           duration: player.duration)
       )
-      .frame(height: 14)
+      .frame(height: 18)
       .disabled(!player.isSeekable)
-      crow
-      if !player.isSeekable && player.isPlaying {
-        Text("This source does not support seeking.")
-          .font(.system(size: 11))
-          .foregroundStyle(.white.opacity(0.7))
+
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: 24) {
+          transportControls
+          Spacer(minLength: 24)
+          utilityControls
+        }
+        VStack(spacing: 16) {
+          transportControls.frame(maxWidth: .infinity)
+          utilityControls.frame(maxWidth: .infinity)
+        }
       }
     }
-    .padding(.horizontal, 16)
-    .padding(.vertical, 12)
-    .frame(maxWidth: 760)
+    .padding(24)
+    .frame(maxWidth: 920)
     .playerGlass(radius: 16)
-    .padding(.horizontal, 16)
-    .padding(.bottom, 18)
+    .padding(.horizontal, 24)
+    .padding(.bottom, 24)
     .frame(maxWidth: .infinity)
-    .onHover { player.hoverControls($0) }
+    .onHover { player.hoverControls($0 || showTrackOptions) }
+    .onChange(of: showTrackOptions) { _, visible in player.hoverControls(visible) }
   }
 
-  private var crow: some View {
-    HStack(spacing: 4) {
+  private var transportControls: some View {
+    HStack(spacing: 12) {
       Button {
         player.navigate(offset: -1)
       } label: {
         Image(systemName: "backward.end.fill")
       }
-      .buttonStyle(PlayerGlyphStyle())
-      .disabled(!player.canGoPrevious).accessibilityIdentifier("player.previous").help(
-        "Previous video")
+      .disabled(!player.canGoPrevious)
+      .accessibilityIdentifier("player.previous")
+      .accessibilityLabel("Previous video").help("Previous video")
+
       Button {
         player.jump(seconds: -10)
       } label: {
         Image(systemName: "gobackward.10")
       }
-      .buttonStyle(PlayerGlyphStyle()).disabled(!player.isSeekable).help("Back 10 seconds")
+      .disabled(!player.isSeekable)
+      .accessibilityLabel("Back 10 seconds").help("Back 10 seconds")
+
       Button {
         player.togglePlayback()
       } label: {
         Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+          .font(.system(size: 22, weight: .semibold))
       }
-      .buttonStyle(PlayerGlyphStyle(size: 36)).help("Play or pause")
+      .buttonStyle(PlayerGlyphStyle(size: 48))
+      .accessibilityLabel(player.isPlaying ? "Pause" : "Play").help("Play or pause")
+
       Button {
         player.jump(seconds: 10)
       } label: {
         Image(systemName: "goforward.10")
       }
-      .buttonStyle(PlayerGlyphStyle()).disabled(!player.isSeekable).help("Forward 10 seconds")
+      .disabled(!player.isSeekable)
+      .accessibilityLabel("Forward 10 seconds").help("Forward 10 seconds")
+
       Button {
         player.navigate(offset: 1)
       } label: {
         Image(systemName: "forward.end.fill")
       }
-      .buttonStyle(PlayerGlyphStyle())
-      .disabled(!player.canGoNext).accessibilityIdentifier("player.next").help("Next video")
-      Button {
-        player.stop()
-      } label: {
-        Image(systemName: "stop.fill")
-      }
-      .buttonStyle(PlayerGlyphStyle()).help("Stop")
-      Button {
-        showRemaining.toggle()
-      } label: {
-        Text(
-          PlayerTime.string(
-            player.isScrubbing ? player.scrubPosition * player.duration : player.elapsed)
-            + " / " + (showRemaining ? "−" : "")
-            + PlayerTime.string(
-              showRemaining ? max(0, player.duration - player.elapsed) : player.duration)
-        )
-        .font(.system(size: 12))
-        .monospacedDigit()
-        .foregroundStyle(.white.opacity(0.75))
-        .lineLimit(1)
-        .fixedSize()
-        .padding(.horizontal, 6)
-      }
-      .buttonStyle(.plain)
-      .playbackHelp("Toggle duration / remaining time", fullscreen: player.isFullscreen)
-      Spacer(minLength: 4)
-      Button {
-        player.repeatEnabled.toggle()
-      } label: {
-        Image(systemName: "repeat")
-          .foregroundStyle(player.repeatEnabled ? Color.accentColor : Color.white)
-      }
-      .buttonStyle(PlayerGlyphStyle()).help("Repeat this video")
-      Button {
-        showEpisodeBrowser = true
-      } label: {
-        Image(systemName: "list.bullet.rectangle")
-      }
-      .buttonStyle(PlayerGlyphStyle()).help("Episodes / Files")
-      .disabled(player.sequenceLoading || player.sequence == nil)
-      .accessibilityLabel("Episodes / Files")
-      Button {
-        showPreferences = true
-      } label: {
-        Image(systemName: "gearshape")
-      }
-      .buttonStyle(PlayerGlyphStyle()).help("Playback preferences")
-      Button {
-        showMarkers = true
-      } label: {
-        Image(systemName: "scissors")
-      }
-      .buttonStyle(PlayerGlyphStyle())
-      .help("Intro / outro markers").disabled(!player.isSeekable)
-      playbackOptions
+      .disabled(!player.canGoNext)
+      .accessibilityIdentifier("player.next")
+      .accessibilityLabel("Next video").help("Next video")
+    }
+    .buttonStyle(PlayerGlyphStyle())
+    .fixedSize()
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel("Playback controls")
+  }
+
+  private var utilityControls: some View {
+    HStack(spacing: 12) {
       Button {
         player.toggleMute()
       } label: {
         Image(systemName: player.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
       }
-      .buttonStyle(PlayerGlyphStyle()).accessibilityLabel("Mute")
-      Slider(
-        value: Binding(get: { player.volume }, set: { player.setVolume($0) }), in: 0...100
-      )
-      .frame(width: 64).tint(.white).accessibilityLabel("Volume")
-      Text("\(Int(player.volume))%")
-        .font(.system(size: 11)).monospacedDigit()
-        .foregroundStyle(.white.opacity(0.75)).frame(width: 30)
+      .buttonStyle(PlayerGlyphStyle())
+      .accessibilityLabel(player.isMuted ? "Unmute" : "Mute").help("Mute or unmute")
+      Slider(value: Binding(get: { player.volume }, set: { player.setVolume($0) }), in: 0...100)
+        .frame(width: 80).tint(.white)
+        .accessibilityLabel("Volume")
+        .accessibilityValue("\(Int(player.volume)) percent")
+
+      Button {
+        showTrackOptions.toggle()
+      } label: {
+        Image(systemName: "captions.bubble")
+      }
+      .buttonStyle(PlayerGlyphStyle())
+      .accessibilityLabel("Audio, subtitles and speed").help("Audio, subtitles and speed")
+      .popover(isPresented: $showTrackOptions) {
+        VStack(alignment: .leading, spacing: 16) {
+          Text("Playback Options").font(.headline)
+          PlayerOptionsMenus(player: player)
+            .fixedSize()
+        }
+        .padding(20)
+        .environment(\.colorScheme, .dark)
+      }
+
+      Menu {
+        Toggle("Repeat Video", isOn: $player.repeatEnabled)
+        Button("Episodes / Files…") { showEpisodeBrowser = true }
+          .disabled(player.sequenceLoading || player.sequence == nil)
+        Button("Intro / Outro Markers…") { showMarkers = true }.disabled(!player.isSeekable)
+        Button("Playback Preferences…") { showPreferences = true }
+        Divider()
+        Button("Stop") { player.stop() }
+      } label: {
+        Image(systemName: "ellipsis.circle")
+          .font(.system(size: 17, weight: .medium)).frame(width: 36, height: 36)
+      }
+      .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+      .accessibilityLabel("More playback actions").help("More playback actions")
+
       Button {
         if player.isFullscreen { player.exitFullscreen() } else { player.toggleFullscreen() }
       } label: {
@@ -330,17 +360,15 @@ struct EmbeddedPlayerView: View {
             ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
       }
       .buttonStyle(PlayerGlyphStyle())
+      .accessibilityLabel(player.isFullscreen ? "Exit fullscreen" : "Enter fullscreen")
       .playbackHelp(
         player.isFullscreen ? "Exit fullscreen" : "Enter fullscreen",
         fullscreen: player.isFullscreen
       )
       .accessibilityIdentifier("player.fullscreen")
     }
-    .lineLimit(1)
-  }
-
-  private var playbackOptions: some View {
-    PlayerOptionsMenus(player: player, compact: true).fixedSize()
+    .foregroundStyle(.white)
+    .fixedSize()
   }
 }
 

@@ -56,9 +56,11 @@ ditto "$PROJECT_ROOT/Vendor/VLCKit.xcframework/macos-arm64_x86_64/VLCKit.framewo
 ditto "$PROJECT_ROOT/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework" \
   "$TEST_FRAMEWORKS_DIR/Sparkle.framework"
 swift test --skip-build
+EXPECTED_VERSION="$(awk '$1 == "MARKETING_VERSION" { gsub(";", "", $3); print $3 }' Myra.xcodeproj/project.pbxproj | sort -u)"
+EXPECTED_BUILD="$(awk '$1 == "CURRENT_PROJECT_VERSION" { gsub(";", "", $3); print $3 }' Myra.xcodeproj/project.pbxproj | sort -u)"
 zsh Scripts/build-dmg.sh
-[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' .build/dmg/products/Myra.app/Contents/Info.plist)" == "3.0.4" ]]
-[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' .build/dmg/products/Myra.app/Contents/Info.plist)" == "12" ]]
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' .build/dmg/products/Myra.app/Contents/Info.plist)" == "$EXPECTED_VERSION" ]]
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' .build/dmg/products/Myra.app/Contents/Info.plist)" == "$EXPECTED_BUILD" ]]
 codesign --verify --deep --strict --verbose=2 .build/dmg/products/Myra.app
 otool -L .build/dmg/products/Myra.app/Contents/MacOS/Myra
 print "Myra update verification and DMG build completed."
