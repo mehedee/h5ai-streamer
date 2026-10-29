@@ -24,6 +24,9 @@ enum MyraRadius {
 enum MyraColor {
   static let window = dynamic((0xF6F6F8, 1), (0x1C1C1F, 1))
   static let content = dynamic((0xFFFFFF, 1), (0x161618, 1))
+  /// The window and sidebar colours without alpha; `TranslucentSurface` applies the Settings level.
+  static let windowBase = dynamic((0xF6F6F8, 1), (0x1C1C1F, 1))
+  static let sidebarBase = dynamic((0xECECF1, 1), (0x28282E, 1))
   static let sidebar = dynamic((0xECECF1, 0.78), (0x28282E, 0.72))
   static let glass = dynamic((0xFFFFFF, 0.72), (0x323238, 0.66))
   static let glassStrong = dynamic((0xFFFFFF, 0.9), (0x2C2C32, 0.94))

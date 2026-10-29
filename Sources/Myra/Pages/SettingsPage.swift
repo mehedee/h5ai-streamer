@@ -61,6 +61,8 @@ struct SettingsView: View {
   @AppStorage(MyraAccent.defaultsKey) private var accentRaw = MyraAccent.default.rawValue
   @AppStorage(MyraAppearance.appearanceKey) private var iconAppearance = MyraIconAppearance
     .automatic.rawValue
+  @AppStorage(MyraTranslucency.defaultsKey) private var translucencyRaw = MyraTranslucency
+    .default.rawValue
   @State private var selectedTab: MyraSettingsTab = .defaultTab
   @State private var token = ""
   @State private var tokenMessage: String?
@@ -120,6 +122,21 @@ struct SettingsView: View {
   }
 
   @ViewBuilder private var generalSections: some View {
+    SettingsGroup(title: "App icon") {
+      SettingsRow(
+        title: "Icon",
+        detail: "Shown in the Dock. Finder shows the default Aperture icon. Changes apply at once."
+      ) {
+        MyraIconPicker()
+      }
+      SettingsRow(title: "Icon style") {
+        SettingsSelect(
+          title: "Icon style", selection: $iconAppearance,
+          options: MyraIconAppearance.allCases.map {
+            SettingsOption(value: $0.rawValue, title: $0.title)
+          })
+      }
+    }
     SettingsGroup(title: "Appearance") {
       SettingsRow(title: "Theme") {
         SettingsSelect(
@@ -133,17 +150,16 @@ struct SettingsView: View {
         MyraAccentPicker(selection: accentBinding)
       }
       SettingsRow(
-        title: "App icon",
-        detail: "Changes the Dock icon. Finder shows the default Aperture icon."
+        title: "Translucency",
+        detail: "Blur behind the window, sidebar and header. Respects Reduce Transparency."
       ) {
-        MyraIconPicker()
-      }
-      SettingsRow(title: "Icon style") {
-        SettingsSelect(
-          title: "Icon style", selection: $iconAppearance,
-          options: MyraIconAppearance.allCases.map {
-            SettingsOption(value: $0.rawValue, title: $0.title)
-          })
+        SegmentedControl(
+          options: MyraTranslucency.allCases.map { SegmentOption(value: $0, title: $0.title) },
+          selection: Binding(
+            get: { MyraTranslucency(storedValue: translucencyRaw) },
+            set: { translucencyRaw = $0.rawValue })
+        )
+        .accessibilityLabel("Translucency")
       }
     }
     SettingsUpdatesGroup(updater: coordinator.updater)

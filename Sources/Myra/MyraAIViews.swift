@@ -10,16 +10,10 @@ struct MyraAIWorkspaceView: View {
   @Environment(\.dismiss) private var dismiss
   @State private var feature: MyraAIFeature
   @State private var prompt = ""
-  @State private var titleQuery = ""
   @State private var selectedIDs: Set<String>
-  @State private var episodeID = ""
-  @State private var subtitleText: String?
-  @State private var subtitleName = ""
-  @State private var importingSubtitle = false
   @State private var localMessage: String?
   @State private var appliedActions: Set<String> = []
   @State private var showingSettings = false
-  @State private var availableMinutes = 120
   @State private var requestTask: Task<Void, Never>?
   @State private var result: MyraAIResponse?
   /// View-side timing for the grounding footer only. Nothing here changes the request.
@@ -37,53 +31,26 @@ struct MyraAIWorkspaceView: View {
     _prompt = State(initialValue: initialPrompt)
     self.ai = ai
     self.play = play
-    _feature = State(initialValue: initialFeature)
+    let actions = MyraAskAction.actions(forTitle: initialTitle)
+    _feature = State(
+      initialValue: actions.contains { $0.feature == initialFeature }
+        ? initialFeature : actions[0].feature)
     _selectedIDs = State(initialValue: initialTitle.map { [$0.id] } ?? [])
+    contextTitle = initialTitle
   }
 
-  private var selectedTitles: [EntertainmentTitle] {
-    store.catalogue.filter { selectedIDs.contains($0.id) }
-  }
+  /// The title the sheet was opened for, if any. It picks the three contextual actions.
+  private let contextTitle: EntertainmentTitle?
 
-  private var matchingTitles: [EntertainmentTitle] {
-    var results: [EntertainmentTitle] = []
-    for title in store.catalogue {
-      if titleQuery.isEmpty || title.displayName.localizedCaseInsensitiveContains(titleQuery) {
-        results.append(title)
-        if results.count == 60 { break }
-      }
-    }
-    return results
-  }
+  private var actions: [MyraAskAction] { MyraAskAction.actions(forTitle: contextTitle) }
 
-  private var watchedEpisodes: [EntertainmentVersion] {
-    guard let title = selectedTitles.first, title.kind == .series else { return [] }
-    return title.versions.filter { version in
-      guard version.episode != nil else { return false }
-      if store.personal.watched.contains(title.id) { return true }
-      guard let record = store.personal.history[version.id], record.duration > 0 else {
-        return false
-      }
-      return record.seconds >= record.duration - 10
-    }.sorted {
-      if $0.season != $1.season { return ($0.season ?? 0) < ($1.season ?? 0) }
-      return ($0.episode ?? 0) < ($1.episode ?? 0)
-    }
-  }
-
-  private var requiresTitles: Bool {
-    [.explain, .summary, .similar, .compare, .moodTags, .cleanup, .recap, .translate].contains(
-      feature)
-  }
+  private var requiresTitles: Bool { [.explain, .summary, .similar].contains(feature) }
 
   private var canRun: Bool {
     guard !ai.isBusy, ai.settings.provider != .disabled,
       ai.settings.enabledFeatures.contains(feature), !store.catalogue.isEmpty
     else { return false }
-    if requiresTitles && selectedIDs.isEmpty { return false }
-    if feature == .compare && selectedIDs.count < 2 { return false }
-    if feature == .recap && (episodeID.isEmpty || subtitleText == nil) { return false }
-    return true
+    return !requiresTitles || !selectedIDs.isEmpty
   }
 
   /// The preview's Ask Myra sheet (`.sheet.ai`): one prompt row, the streamed answer, three
@@ -96,9 +63,7 @@ struct MyraAIWorkspaceView: View {
             text: $prompt, label: "Your request or preferences",
             placeholder: "Ask for something to watch, a summary or a comparison",
             submit: { if canRun { run() } })
-          if needsContext {
-            contextControls.padding(.top, 12)
-          }
+          actionChips.padding(.top, 12)
           answer.padding(.top, 14)
           if let response = result {
             recommendations(response).padding(.top, 12)
@@ -143,7 +108,6 @@ struct MyraAIWorkspaceView: View {
     .onDisappear {
       requestTask?.cancel()
       ai.cancel()
-      subtitleText = nil
     }
     .onChange(of: feature) { _, _ in
       localMessage = nil
@@ -151,42 +115,33 @@ struct MyraAIWorkspaceView: View {
       result = nil
       ai.prewarm(feature: feature)
     }
-    .onChange(of: episodeID) { _, _ in
-      subtitleText = nil
-      subtitleName = ""
-    }
     .onChange(of: ai.partialSummary) { _, partial in
       if !partial.isEmpty, firstWordsAt == nil, runStartedAt != nil { firstWordsAt = Date() }
     }
     .sheet(isPresented: $showingSettings) { MyraAISettingsWindow(ai: ai) }
-    .fileImporter(isPresented: $importingSubtitle, allowedContentTypes: [.plainText, .data]) {
-      result in
-      importSubtitle(result)
-    }
   }
 
-  /// Tools that need chosen titles, an episode or a time budget show those controls under the
-  /// prompt; the default Smart Pick needs none, as in the preview.
-  private var needsContext: Bool {
-    requiresTitles || feature == .collection || feature == .action || feature == .plan
-      || feature == .recap
-  }
-
-  @ViewBuilder private var contextControls: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      if feature == .plan {
-        Stepper(
-          "Time available: \(availableMinutes) minutes", value: $availableMinutes,
-          in: 15...600, step: 15)
+  /// The three contextual actions under the box. The chosen one decides how Myra answers.
+  private var actionChips: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      if let contextTitle {
+        Text("About \(contextTitle.displayName)")
+          .font(.system(size: 12)).foregroundStyle(MyraColor.text2)
       }
-      if requiresTitles || feature == .collection || feature == .action { titleSelection }
-      if feature == .recap { recapControls }
+      FlowLayout(spacing: 6) {
+        ForEach(actions) { action in
+          Button {
+            feature = action.feature
+          } label: {
+            HomeChip(title: action.title, isOn: feature == action.feature)
+          }
+          .buttonStyle(.plain)
+          .disabled(ai.isBusy)
+          .help(action.feature.hint)
+          .accessibilityAddTraits(feature == action.feature ? .isSelected : [])
+        }
+      }
     }
-    .font(.system(size: 13))
-    .padding(12)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(MyraColor.content, in: RoundedRectangle(cornerRadius: 10))
-    .overlay(RoundedRectangle(cornerRadius: 10).stroke(MyraColor.line, lineWidth: 1))
   }
 
   /// The `.answer` block: streamed text with the cursor while Myra writes, then the result.
@@ -273,19 +228,6 @@ struct MyraAIWorkspaceView: View {
   /// The `.foot`: the tool and AI Settings on the left, Close and Ask on the right.
   private var footer: some View {
     HStack(spacing: 8) {
-      Menu {
-        Picker("Tool", selection: $feature) {
-          ForEach(MyraAIFeature.allCases, id: \.self) { Text($0.title).tag($0) }
-        }
-        .pickerStyle(.inline)
-      } label: {
-        Text(feature.title)
-      }
-      .menuStyle(.borderlessButton)
-      .fixedSize()
-      .disabled(ai.isBusy)
-      .help("Choose what Myra should do")
-      .accessibilityLabel("Myra AI tool")
       Button("AI Settings…") { showingSettings = true }
         .buttonStyle(.plain)
         .foregroundStyle(MyraColor.text2)
@@ -314,76 +256,6 @@ struct MyraAIWorkspaceView: View {
     .padding(.vertical, 12)
     .background(MyraColor.fill)
     .overlay(alignment: .top) { Rectangle().fill(MyraColor.line).frame(height: 1) }
-  }
-
-  private var titleSelection: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Text(feature == .compare ? "Choose two or more titles" : "Choose titles").font(.headline)
-      ForEach(selectedTitles) { title in
-        HStack {
-          Text(title.displayName).lineLimit(1)
-          Spacer()
-          Button {
-            selectedIDs.remove(title.id)
-            episodeID = ""
-          } label: {
-            Image(systemName: "xmark.circle")
-          }
-          .buttonStyle(.plain).accessibilityLabel("Remove \(title.displayName)")
-        }
-      }
-      TextField("Find a title in your library", text: $titleQuery).textFieldStyle(.roundedBorder)
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: 6) {
-          ForEach(matchingTitles) { title in
-            Button {
-              if feature == .recap {
-                selectedIDs = [title.id]
-                episodeID = ""
-              } else if selectedIDs.count < 10 {
-                selectedIDs.insert(title.id)
-              }
-            } label: {
-              HStack {
-                Text(title.displayName).lineLimit(1)
-                if let year = title.year { Text(year).foregroundStyle(.secondary) }
-                Spacer()
-                if selectedIDs.contains(title.id) { Image(systemName: "checkmark") }
-              }
-            }.buttonStyle(.plain)
-              .disabled(
-                (feature == .recap && title.kind != .series) || selectedIDs.contains(title.id))
-          }
-        }
-      }.frame(height: 130)
-      Text("Showing up to 60 matches. Select up to 10 titles.").font(.caption).foregroundStyle(
-        .secondary)
-    }
-  }
-
-  private var recapControls: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Text("Recap a watched episode").font(.headline)
-      Picker("Episode", selection: $episodeID) {
-        Text("Select an episode").tag("")
-        ForEach(watchedEpisodes) { version in
-          Text(
-            String(format: "Season %d · Episode %02d", version.season ?? 0, version.episode ?? 0)
-          ).tag(version.id)
-        }
-      }
-      if watchedEpisodes.isEmpty {
-        Text("Only completed episodes or episodes of a series you marked watched are eligible.")
-          .font(.caption).foregroundStyle(.secondary)
-      }
-      Button("Import This Episode’s Subtitles…") { importingSubtitle = true }.disabled(
-        episodeID.isEmpty)
-      if !subtitleName.isEmpty { Text(subtitleName).font(.caption).lineLimit(2) }
-      Text(
-        "Select subtitles for this episode only. Subtitles can contain spoilers; a recap cannot guarantee spoiler-free output. Cloud transmission requires separate permission in AI Settings."
-      )
-      .font(.caption).foregroundStyle(.secondary)
-    }
   }
 
   private func recommendationCard(
@@ -464,12 +336,7 @@ struct MyraAIWorkspaceView: View {
   private func run() {
     localMessage = nil
     appliedActions.removeAll()
-    var request = prompt
-    if feature == .plan { request += "\nAvailable time: \(availableMinutes) minutes." }
-    if feature == .recap, let version = watchedEpisodes.first(where: { $0.id == episodeID }) {
-      request +=
-        "\nRecap only Season \(version.season ?? 0), Episode \(version.episode ?? 0). Source: \(subtitleName)."
-    }
+    let request = prompt
     result = nil
     runStartedAt = Date()
     firstWordsAt = nil
@@ -478,40 +345,38 @@ struct MyraAIWorkspaceView: View {
       await ai.execute(
         feature: feature, prompt: request, titles: store.catalogue,
         personal: store.personal, revision: store.projectionRevision,
-        selectedIDs: selectedIDs.sorted(), subtitleText: feature == .recap ? subtitleText : nil,
-        recapVersionID: feature == .recap ? episodeID : nil)
+        selectedIDs: selectedIDs.sorted(), subtitleText: nil, recapVersionID: nil)
       if !Task.isCancelled {
         result = ai.response
         if result != nil { runFinishedAt = Date() }
       }
     }
   }
+}
 
-  private func importSubtitle(_ result: Result<URL, Error>) {
-    do {
-      let url = try result.get()
-      guard ["srt", "ass", "ssa", "vtt", "txt"].contains(url.pathExtension.lowercased()) else {
-        localMessage = "Choose an SRT, ASS, SSA, VTT, or text subtitle file."
-        return
-      }
-      let access = url.startAccessingSecurityScopedResource()
-      defer { if access { url.stopAccessingSecurityScopedResource() } }
-      let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-      guard ((attributes[.size] as? NSNumber)?.intValue ?? Int.max) <= 2_000_000 else {
-        localMessage = "Choose a subtitle file smaller than 2 MB."
-        return
-      }
-      let data = try Data(contentsOf: url)
-      guard let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .utf16),
-        !text.isEmpty
-      else {
-        localMessage = "The subtitle file must contain readable UTF-8 or UTF-16 text."
-        return
-      }
-      subtitleText = text
-      subtitleName = url.lastPathComponent
-      localMessage = "Imported for this request only."
-    } catch { localMessage = error.localizedDescription }
+/// One of the three contextual actions under the Ask Myra box. Each runs one existing AI feature,
+/// so there is a single box and no tool picker: the choice depends on where Ask Myra was opened.
+struct MyraAskAction: Identifiable, Equatable {
+  let feature: MyraAIFeature
+  let title: String
+
+  var id: String { feature.rawValue }
+
+  /// From Home or the menu: a pick for tonight, a question about the library, a new collection.
+  /// From a title: more like it, a short summary, why it fits.
+  static func actions(forTitle title: EntertainmentTitle?) -> [MyraAskAction] {
+    if title != nil {
+      return [
+        .init(feature: .similar, title: "More like this"),
+        .init(feature: .summary, title: "Short summary"),
+        .init(feature: .explain, title: "Why this pick"),
+      ]
+    }
+    return [
+      .init(feature: .smartPick, title: "Pick for tonight"),
+      .init(feature: .assistant, title: "Ask about my library"),
+      .init(feature: .collection, title: "Make a collection"),
+    ]
   }
 }
 

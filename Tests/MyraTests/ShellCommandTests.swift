@@ -48,12 +48,41 @@ final class ShellCommandTests: XCTestCase {
   func testPlaybackCommandsNeedOpenMedia() {
     let idle = MyraCommandContext()
     let playing = MyraCommandContext(isPlayingMedia: true)
-    for command in [
-      MyraCommand.togglePlayback, .skipBack, .skipForward, .previousEpisode, .nextEpisode,
-    ] {
+    for command in [MyraCommand.togglePlayback, .skipBack, .skipForward] {
       XCTAssertFalse(command.availability(in: idle).isEnabled, "\(command.identifier)")
       XCTAssertTrue(command.availability(in: playing).isEnabled, "\(command.identifier)")
     }
+  }
+
+  func testEpisodeCommandsApplyOnlyToSeriesAndStopAtTheEnds() {
+    // A movie has no Previous or Next Episode, even while it plays.
+    let movie = MyraCommandContext(isPlayingMedia: true)
+    XCTAssertFalse(MyraCommand.previousEpisode.availability(in: movie).isEnabled)
+    XCTAssertFalse(MyraCommand.nextEpisode.availability(in: movie).isEnabled)
+
+    let middle = MyraCommandContext(
+      isPlayingMedia: true, isPlayingEpisode: true, canGoPreviousEpisode: true,
+      canGoNextEpisode: true)
+    XCTAssertTrue(MyraCommand.previousEpisode.availability(in: middle).isEnabled)
+    XCTAssertTrue(MyraCommand.nextEpisode.availability(in: middle).isEnabled)
+
+    let first = MyraCommandContext(
+      isPlayingMedia: true, isPlayingEpisode: true, canGoPreviousEpisode: false,
+      canGoNextEpisode: true)
+    XCTAssertFalse(MyraCommand.previousEpisode.availability(in: first).isEnabled)
+    XCTAssertTrue(MyraCommand.nextEpisode.availability(in: first).isEnabled)
+
+    let last = MyraCommandContext(
+      isPlayingMedia: true, isPlayingEpisode: true, canGoPreviousEpisode: true,
+      canGoNextEpisode: false)
+    XCTAssertTrue(MyraCommand.previousEpisode.availability(in: last).isEnabled)
+    XCTAssertFalse(MyraCommand.nextEpisode.availability(in: last).isEnabled)
+  }
+
+  func testSidebarAndWatchlistCommandsRoundTrip() {
+    XCTAssertEqual(MyraCommand(identifier: "toggleSidebar"), .toggleSidebar)
+    XCTAssertEqual(MyraCommand(identifier: "showWatchlist"), .showWatchlist)
+    XCTAssertTrue(MyraCommand.toggleSidebar.availability(in: MyraCommandContext()).isEnabled)
   }
 
   func testDownloadCommandsFollowBatchState() {

@@ -5,11 +5,16 @@ Icon Composer's ictool is the source of truth for all renditions. Aperture is th
 default; it is also the bundle icon in AppIcon.appiconset. Spotlight and Ribbon M
 are Dock choices rendered to Sources/Myra/Resources/MyraIcons for runtime use.
 Glyphs are centred inside the macOS safe area of a 1024 pt master and contain no text.
+
+Every bitmap rendition follows the macOS icon grid: the squircle body is 824/1024 of the canvas,
+centred (100 px margin at 1024), with a soft drop shadow (10 px down, 28 px blur, 30% black).
+ictool renders the full-bleed body; Scripts/compose-myra-icon.swift places it on the canvas.
 """
 import json
 import os
 import pathlib
 import subprocess
+import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ICON_TOOL = pathlib.Path(os.environ.get(
@@ -18,6 +23,12 @@ ICON_TOOL = pathlib.Path(os.environ.get(
 ICONS_DIR = ROOT / 'Resources' / 'MyraIcons'
 RUNTIME_DIR = ROOT / 'Sources' / 'Myra' / 'Resources' / 'MyraIcons'
 APPICON_DIR = ROOT / 'Resources' / 'Assets.xcassets' / 'AppIcon.appiconset'
+
+COMPOSE_SOURCE = ROOT / 'Scripts' / 'compose-myra-icon.swift'
+# The icon grid: the body is 824 of 1024 units wide and the rest is margin for the shadow.
+BODY_UNITS = 824
+CANVAS_UNITS = 1024
+RUNTIME_CANVAS = 512
 
 # Renditions: (Icon Composer rendition name, runtime suffix).
 RENDITIONS = [('Default', 'default'), ('Dark', 'dark'), ('ClearLight', 'clear'), ('TintedLight', 'tinted')]
@@ -110,22 +121,51 @@ def write_document(key, concept):
 
 
 def render(document, rendition, size, output):
+    """Render the full-bleed body with ictool at `size` pixels."""
     output.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run([str(ICON_TOOL), str(document), '--export-image', '--output-file', str(output),
                     '--platform', 'macOS', '--rendition', rendition, '--width', str(size),
                     '--height', str(size), '--scale', '1'], check=True)
 
 
+def body_size(canvas):
+    return round(canvas * BODY_UNITS / CANVAS_UNITS)
+
+
+def build_composer(directory):
+    binary = pathlib.Path(directory) / 'compose-myra-icon'
+    subprocess.run(['swiftc', '-O', str(COMPOSE_SOURCE), '-o', str(binary)], check=True)
+    return binary
+
+
 def main():
     if not ICON_TOOL.exists():
         raise SystemExit(f'ictool not found at {ICON_TOOL}; set MYRA_ICTOOL to render icons')
-    for key, concept in CONCEPTS.items():
-        document = write_document(key, concept)
-        for rendition, suffix in RENDITIONS:
-            render(document, rendition, 512, RUNTIME_DIR / f'{key}-{suffix}.png')
-    aperture = ICONS_DIR / 'aperture.icon'
-    for size, filename in APPICON_SIZES:
-        render(aperture, 'Default', size, APPICON_DIR / filename)
+    with tempfile.TemporaryDirectory() as scratch:
+        scratch = pathlib.Path(scratch)
+        composer = build_composer(scratch)
+
+        def compose(document, rendition, canvas, output):
+            body = scratch / 'body.png'
+            render(document, rendition, body_size(canvas), body)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run([str(composer), 'compose', str(body), str(output), str(canvas)],
+                           check=True)
+
+        for key, concept in CONCEPTS.items():
+            document = write_document(key, concept)
+            for rendition, suffix in RENDITIONS:
+                compose(document, rendition, RUNTIME_CANVAS, RUNTIME_DIR / f'{key}-{suffix}.png')
+        aperture = ICONS_DIR / 'aperture.icon'
+        master = scratch / 'master.png'
+        compose(aperture, 'Default', CANVAS_UNITS, master)
+        for size, filename in APPICON_SIZES:
+            output = APPICON_DIR / filename
+            if size == CANVAS_UNITS:
+                output.write_bytes(master.read_bytes())
+            else:
+                subprocess.run([str(composer), 'resize', str(master), str(output), str(size)],
+                               check=True)
 
 
 if __name__ == '__main__':

@@ -1,5 +1,25 @@
 import SwiftUI
 
+/// Measurements of the player's bottom glass bar, from the preview's `.pcontrols`.
+enum PlayerBarLayout {
+  static let maxWidth: CGFloat = 960
+  static let innerPadding: CGFloat = 36
+  static let outerMargin: CGFloat = 28
+
+  /// Whether the player offers Previous, Next and the episode list for a file. Only a file named
+  /// as an episode of a series does; a movie hides all three.
+  static func showsEpisodeControls(filename: String) -> Bool {
+    MediaIdentity.parse(filename: filename).episode != nil
+  }
+}
+
+extension EmbeddedPlayerModel {
+  /// True while the playing item is a series episode.
+  var isPlayingEpisode: Bool {
+    media.map { PlayerBarLayout.showsEpisodeControls(filename: $0.entry.name) } ?? false
+  }
+}
+
 /// Torrent facts the player chrome shows. Empty for local and indexed-file playback.
 struct PlayerStreamStatus: Equatable {
   var isTorrentStream = false
