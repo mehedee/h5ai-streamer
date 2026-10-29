@@ -131,6 +131,8 @@ final class LibraryController: ObservableObject {
       }
       guard let self, !Task.isCancelled, refreshID == id else { return }
       var changed = false
+      let runMark = MyraPerformance.begin(PerfMark.indexRun)
+      defer { runMark.end("manual=\(manual)") }
       do {
         let index = try await database()
         try Task.checkCancellation()

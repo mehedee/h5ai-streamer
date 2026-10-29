@@ -948,6 +948,8 @@ actor HomeProjectionWorker {
     _ catalogue: [EntertainmentTitle], personal: EntertainmentPersonalData,
     filter: HomeCatalogueFilter
   ) throws -> HomeCatalogueProjection {
+    let mark = MyraPerformance.begin(PerfMark.homeRender)
+    defer { mark.end("projection of \(catalogue.count) titles") }
     var result = HomeCatalogueProjection()
     var genres: Set<String> = []
     var languages: Set<String> = []

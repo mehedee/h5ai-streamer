@@ -246,7 +246,10 @@ final class EntertainmentStore: ObservableObject {
 
   /// Rebuilds the automatic shelves after a library refresh and makes sure the preferences record exists.
   func rebuildHomeCategories(from titles: [EntertainmentTitle]) {
+    let mark = MyraPerformance.begin(PerfMark.homeRender)
     homeShelves = HomeCategoryBuilder.categories(for: titles)
+    mark.end("shelves \(homeShelves.count) of \(titles.count) titles")
+    if !homeShelves.isEmpty { MyraPerformance.noteFirstHomeShelf() }
     if canWrite, personal.homeCategories == nil {
       mutate { $0.homeCategories = HomeCategoryPreferences() }
     }
@@ -780,23 +783,29 @@ actor EntertainmentCatalogueWorker {
   }
   func prepare(index: LibraryIndex, personal: EntertainmentPersonalData) async throws -> Prepared {
     let started = Date.now
+    let prepareMark = MyraPerformance.begin(PerfMark.cataloguePrepare)
+    defer { prepareMark.end() }
     let revision = try await index.revision()
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.sortedKeys]
     let corrections = try encoder.encode(personal.matchCorrections)
     let cacheURL = index.url.appendingPathExtension("home-cache")
     var savedTitles: [EntertainmentTitle]?
+    let loadMark = MyraPerformance.begin(PerfMark.homeCacheLoad)
     if let data = try? Data(contentsOf: cacheURL),
       let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data), snapshot.format == 2,
       snapshot.revision == revision, snapshot.corrections == corrections,
       let restored = try? snapshot.titles.map({ try $0.restore(sources: snapshot.sources) })
     {
+      loadMark.end("hit \(restored.count) titles")
       if Date.now.timeIntervalSince(snapshot.saved) < 86400 {
         return Prepared(
           titles: restored,
           enrichmentIDs: snapshot.enrichmentIDs, metadataQueryCount: 0)
       }
       savedTitles = restored
+    } else {
+      loadMark.end("miss")
     }
     var titles: [EntertainmentTitle]
     if let savedTitles {
