@@ -6,6 +6,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AED2DEBC7B59CFDF3B01CDB1 /* AppIconGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADD2DEBC7B59CFDF3B01CDB1 /* AppIconGeometryTests.swift */; };
 		FB20000000000000000000001 /* TorrentController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB10000000000000000000001; };
 		FB20000000000000000000002 /* TorrentEngineClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB10000000000000000000002; };
 		FB20000000000000000000003 /* TorrentDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB10000000000000000000003; };
@@ -118,6 +119,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		ADD2DEBC7B59CFDF3B01CDB1 /* AppIconGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconGeometryTests.swift; sourceTree = "<group>"; };
 		FB10000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentController.swift; sourceTree = "<group>"; };
 		FB10000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentEngineClient.swift; sourceTree = "<group>"; };
 		FB10000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentDiscovery.swift; sourceTree = "<group>"; };
@@ -349,6 +351,7 @@
 		C01000000000000000000004 /* MyraTests */ = {
 			isa = PBXGroup;
 			children = (
+				ADD2DEBC7B59CFDF3B01CDB1 /* AppIconGeometryTests.swift */,
 				FA10000000000000000000004,
 				B00200000000000000000001,
 				F41000000000000000000012,
@@ -538,6 +541,7 @@ F44000000000000000000001, F44000000000000000000002,
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AED2DEBC7B59CFDF3B01CDB1 /* AppIconGeometryTests.swift in Sources */,
 				FA20000000000000000000004,
 				F42000000000000000000007,
 				F42000000000000000000008,
