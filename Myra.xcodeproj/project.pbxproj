@@ -20,6 +20,14 @@
 		FA20000000000000000000001 /* TorrentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA10000000000000000000001; };
 		FA20000000000000000000002 /* TorrentDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA10000000000000000000002; };
 		FA20000000000000000000003 /* TorrentCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA10000000000000000000003; };
+		7C2000000000000000000001 /* TorrentSearchModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1000000000000000000001 /* TorrentSearchModels.swift */; };
+		7C2000000000000000000002 /* TorznabFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1000000000000000000002 /* TorznabFeed.swift */; };
+		7C2000000000000000000003 /* TorrentSearchEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1000000000000000000003 /* TorrentSearchEngine.swift */; };
+		7C2000000000000000000004 /* TorrentIndexerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1000000000000000000004 /* TorrentIndexerStore.swift */; };
+		7C2000000000000000000005 /* TorrentSearchModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1000000000000000000005 /* TorrentSearchModel.swift */; };
+		7C2000000000000000000006 /* TorrentSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1000000000000000000006 /* TorrentSearchView.swift */; };
+		7C2000000000000000000007 /* TorrentIndexerViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1000000000000000000007 /* TorrentIndexerViews.swift */; };
+		7C2000000000000000000099 /* TorrentSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1000000000000000000099 /* TorrentSearchTests.swift */; };
 		FA20000000000000000000004 /* TorrentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA10000000000000000000004; };
         F52000000000000000000001 = {isa = PBXBuildFile; fileRef = F51000000000000000000001; };
         F52000000000000000000002 = {isa = PBXBuildFile; productRef = F53000000000000000000002; };
@@ -139,6 +147,14 @@
 		FA10000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentModels.swift; sourceTree = "<group>"; };
 		FA10000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentDatabase.swift; sourceTree = "<group>"; };
 		FA10000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentCache.swift; sourceTree = "<group>"; };
+		7C1000000000000000000001 /* TorrentSearchModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentSearch/TorrentSearchModels.swift; sourceTree = "<group>"; };
+		7C1000000000000000000002 /* TorznabFeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentSearch/TorznabFeed.swift; sourceTree = "<group>"; };
+		7C1000000000000000000003 /* TorrentSearchEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentSearch/TorrentSearchEngine.swift; sourceTree = "<group>"; };
+		7C1000000000000000000004 /* TorrentIndexerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentSearch/TorrentIndexerStore.swift; sourceTree = "<group>"; };
+		7C1000000000000000000005 /* TorrentSearchModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentSearch/TorrentSearchModel.swift; sourceTree = "<group>"; };
+		7C1000000000000000000006 /* TorrentSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentSearch/TorrentSearchView.swift; sourceTree = "<group>"; };
+		7C1000000000000000000007 /* TorrentIndexerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentSearch/TorrentIndexerViews.swift; sourceTree = "<group>"; };
+		7C1000000000000000000099 /* TorrentSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentSearchTests.swift; sourceTree = "<group>"; };
 		FA10000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentTests.swift; sourceTree = "<group>"; };
         F51000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdater.swift; sourceTree = "<group>"; };
 		B00100000000000000000019 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSequence.swift; sourceTree = "<group>"; };
@@ -309,6 +325,13 @@
 				DDCE6F9B1D3B11440C2EBF4E /* MyraCommands.swift */,
 				1FDC256E3C373839A82D19FB /* RootView.swift */,
 				611770139B2493A3DA7527D2 /* TorrentLinks.swift */,
+				7C1000000000000000000001 /* TorrentSearchModels.swift */,
+				7C1000000000000000000002 /* TorznabFeed.swift */,
+				7C1000000000000000000003 /* TorrentSearchEngine.swift */,
+				7C1000000000000000000004 /* TorrentIndexerStore.swift */,
+				7C1000000000000000000005 /* TorrentSearchModel.swift */,
+				7C1000000000000000000006 /* TorrentSearchView.swift */,
+				7C1000000000000000000007 /* TorrentIndexerViews.swift */,
 				FB10000000000000000000001,
 				FB10000000000000000000002,
 				FB10000000000000000000003,
@@ -371,6 +394,7 @@
 			isa = PBXGroup;
 			children = (
 				FA10000000000000000000004,
+				7C1000000000000000000099 /* TorrentSearchTests.swift */,
 				B00200000000000000000001,
 				F41000000000000000000012,
 				F41000000000000000000011,
@@ -512,6 +536,13 @@ F44000000000000000000001, F44000000000000000000002,
 				F3BB6CA427F836C0B6A334EA /* MyraCommands.swift in Sources */,
 				653192EF4F58F98E939617A9 /* RootView.swift in Sources */,
 				1A7F869B20EBFC80216D4F03 /* TorrentLinks.swift in Sources */,
+				7C2000000000000000000001 /* TorrentSearchModels.swift in Sources */,
+				7C2000000000000000000002 /* TorznabFeed.swift in Sources */,
+				7C2000000000000000000003 /* TorrentSearchEngine.swift in Sources */,
+				7C2000000000000000000004 /* TorrentIndexerStore.swift in Sources */,
+				7C2000000000000000000005 /* TorrentSearchModel.swift in Sources */,
+				7C2000000000000000000006 /* TorrentSearchView.swift in Sources */,
+				7C2000000000000000000007 /* TorrentIndexerViews.swift in Sources */,
 				FB20000000000000000000001,
 				FB20000000000000000000002,
 				FB20000000000000000000003,
@@ -567,6 +598,7 @@ F44000000000000000000001, F44000000000000000000002,
 			buildActionMask = 2147483647;
 			files = (
 				FA20000000000000000000004,
+				7C2000000000000000000099 /* TorrentSearchTests.swift in Sources */,
 				F42000000000000000000007,
 				F42000000000000000000008,
 				F42000000000000000000012,

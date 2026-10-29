@@ -31,7 +31,15 @@ final class TorrentController: ObservableObject {
   @Published var consentRequest: PendingTorrentLink?
   @Published private(set) var consentGrantedAt: Date?
   @Published private(set) var importing = false
-  let discovery = TorrentDiscoveryModel()
+  /// Search indexers (built-in and user-added) and the Search tab's state.
+  let indexers: TorrentIndexerStore
+  let search: TorrentSearchModel
+  /// Selected segment of the Transfers page; kept here so a command can switch it.
+  @Published var selectedTab: TorrentsTab = .transfers
+  /// Bumped to move keyboard focus into the Search field.
+  @Published private(set) var searchFocusToken = 0
+  /// Action chosen on a search result. The Add torrent sheet puts it first, then resets it.
+  var startIntent: TorrentStartMode = .play
   let consent: TorrentConsent
   private var importTask: Task<Void, Never>?
   private var database: TorrentDatabase?
@@ -58,8 +66,14 @@ final class TorrentController: ObservableObject {
 
   var hasConsent: Bool { consentGrantedAt != nil }
 
-  init(consent: TorrentConsent = TorrentConsent()) {
+  init(
+    consent: TorrentConsent = TorrentConsent(),
+    indexers: TorrentIndexerStore = TorrentIndexerStore(),
+    searchEngine: TorrentSearchEngine? = nil
+  ) {
     self.consent = consent
+    self.indexers = indexers
+    search = TorrentSearchModel(store: indexers, engine: searchEngine)
     consentGrantedAt = consent.grantedAt
   }
 
@@ -84,8 +98,9 @@ final class TorrentController: ObservableObject {
       try FileManager.default.createDirectory(
         at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
       root = directory.resolvingSymlinksInPath()
-      discovery.storageURL = directory.appending(path: "sources.json")
-      try discovery.load()
+      indexers.storageURL = directory.appending(path: "indexers.json")
+      indexers.legacyURL = directory.appending(path: "sources.json")
+      try indexers.load()
       let database = try TorrentDatabase(url: directory.appending(path: "torrents.sqlite"))
       self.database = database
       preferences = try await database.preferences()
@@ -569,20 +584,30 @@ final class TorrentController: ObservableObject {
     for job in jobs where clients[job.id] != nil { cancel(job.identity) }
   }
 
-  func importDiscovery(_ item: TorrentDiscoveryItem) {
+  /// Switches Transfers to the Search tab and focuses the query field ("Search Torrents", shift-cmd-T).
+  func showSearch() {
+    selectedTab = .search
+    searchFocusToken += 1
+  }
+
+  /// Play Now or Download on a search result. Magnets (or an info hash) go straight to the
+  /// Add torrent sheet; otherwise the torrent file is fetched first. The sheet opens with
+  /// the chosen action first.
+  func start(_ result: TorrentSearchResult, mode: TorrentStartMode) {
     cancelImport()
+    startIntent = mode
     importing = true
     importTask = Task {
       defer { importing = false }
       do {
-        if let magnet = item.magnet {
+        if let magnet = result.shareableMagnet {
           await addMagnet(magnet)
           return
         }
         let url: URL
-        if let id = item.archiveID {
+        if let id = result.archiveID {
           url = try await TorrentDiscoveryService.archiveTorrent(id)
-        } else if let torrentURL = item.torrentURL {
+        } else if let torrentURL = result.torrentURL {
           url = torrentURL
         } else {
           throw TorrentError.invalidIdentity
@@ -606,7 +631,7 @@ final class TorrentController: ObservableObject {
 
   func shutdown() {
     cancelImport()
-    discovery.cancel()
+    search.cancel()
     for client in clients.values { client.stop() }
     clients.removeAll()
   }
