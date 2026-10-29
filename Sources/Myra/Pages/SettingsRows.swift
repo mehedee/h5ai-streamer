@@ -103,8 +103,42 @@ struct SettingsToggleRow: View {
     SettingsRow(title: title, detail: detail) {
       Toggle(title, isOn: $isOn)
         .labelsHidden()
-        .toggleStyle(.switch)
+        .toggleStyle(SettingsSwitchStyle(title: title))
     }
+  }
+}
+
+/// The 34 by 20 switch from the preview: a green track when on, a white knob that slides.
+struct SettingsSwitchStyle: ToggleStyle {
+  let title: String
+
+  @Environment(\.isEnabled) private var isEnabled
+
+  func makeBody(configuration: Configuration) -> some View {
+    Button {
+      configuration.isOn.toggle()
+    } label: {
+      ZStack {
+        Capsule()
+          .fill(configuration.isOn ? SettingsStyle.switchOn : MyraColor.fill2)
+        Circle()
+          .fill(Color.white)
+          .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
+          .frame(width: SettingsMetrics.knobDiameter, height: SettingsMetrics.knobDiameter)
+          .frame(
+            maxWidth: .infinity,
+            alignment: configuration.isOn ? .trailing : .leading
+          )
+          .padding(2)
+      }
+      .frame(width: SettingsMetrics.switchWidth, height: SettingsMetrics.switchHeight)
+      .animation(.easeInOut(duration: 0.15), value: configuration.isOn)
+    }
+    .buttonStyle(.plain)
+    .opacity(isEnabled ? 1 : 0.4)
+    .accessibilityLabel(Text(title))
+    .accessibilityValue(configuration.isOn ? "On" : "Off")
+    .accessibilityAddTraits(.isToggle)
   }
 }
 
@@ -127,11 +161,37 @@ struct SettingsSelect<Value: Hashable>: View {
   }
 
   var body: some View {
-    Picker(title, selection: $selection) {
-      ForEach(options) { option in Text(option.title).tag(option.value) }
+    Menu {
+      ForEach(options) { option in
+        Button {
+          selection = option.value
+        } label: {
+          if option.value == selection {
+            Label(option.title, systemImage: "checkmark")
+          } else {
+            Text(option.title)
+          }
+        }
+      }
+    } label: {
+      HStack(spacing: 4) {
+        Text(currentTitle)
+        Image(systemName: "chevron.down")
+          .font(.system(size: 9, weight: .semibold))
+          .foregroundStyle(MyraColor.text2)
+      }
+      .font(.system(size: 13))
+      .foregroundStyle(MyraColor.text)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 3)
+      .background(MyraColor.fill, in: RoundedRectangle(cornerRadius: SettingsMetrics.selectRadius))
+      .overlay(
+        RoundedRectangle(cornerRadius: SettingsMetrics.selectRadius)
+          .stroke(MyraColor.line, lineWidth: 1)
+      )
     }
-    .pickerStyle(.menu)
-    .labelsHidden()
+    .menuStyle(.borderlessButton)
+    .menuIndicator(.hidden)
     .fixedSize()
     .accessibilityLabel(title)
     .accessibilityValue(currentTitle)

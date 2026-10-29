@@ -52,7 +52,7 @@ enum MyraSettingsValidation {
   }
 }
 
-/// Native macOS Settings tabs with grouped forms and system controls.
+/// The Settings window, laid out as the approved preview: an icon tab bar, grouped rows and a footer.
 /// Owned controls save as they change. Embedded sections keep their own Save actions.
 struct SettingsView: View {
   @ObservedObject var coordinator: AppCoordinator
@@ -74,22 +74,21 @@ struct SettingsView: View {
   private var accent: Color { (MyraAccent(rawValue: accentRaw) ?? .default).color }
 
   var body: some View {
-    TabView(selection: $selectedTab) {
-      ForEach(MyraSettingsTab.allCases) { tab in
-        Form {
-          switch tab {
-          case .general: generalSections
-          case .library: librarySections
-          case .downloads: downloadsSections
-          case .playback: playbackSections
-          case .ai: MyraAISettingsSection()
-          case .torrents: TorrentSettingsSection(controller: coordinator.torrents)
-          }
+    VStack(spacing: 0) {
+      SettingsTabBar(selection: $selectedTab, accent: accent)
+      Form {
+        switch selectedTab {
+        case .general: generalSections
+        case .library: librarySections
+        case .downloads: downloadsSections
+        case .playback: playbackSections
+        case .ai: MyraAISettingsSection()
+        case .torrents: TorrentSettingsSection(controller: coordinator.torrents)
         }
-        .formStyle(.grouped)
-        .tabItem { Label(tab.title, systemImage: tab.symbol) }
-        .tag(tab)
       }
+      .formStyle(.grouped)
+      .scrollContentBackground(.hidden)
+      SettingsFooter()
     }
     .frame(maxWidth: SettingsMetrics.windowWidth)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -98,9 +97,6 @@ struct SettingsView: View {
     // The Settings window is its own scene, so it needs the accent the main window applies.
     .environment(\.myraAccent, MyraAccent(rawValue: accentRaw) ?? .default)
     .tint(accent)
-    .preferredColorScheme(
-      settings.theme == .system ? nil : (settings.theme == .light ? .light : .dark)
-    )
     .onChange(of: settingsSnapshot) { _, _ in coordinator.saveSettings() }
   }
 
@@ -295,6 +291,75 @@ struct SettingsView: View {
       tokenMessage = "Token removed."
     } catch {
       tokenMessage = error.localizedDescription
+    }
+  }
+}
+
+/// The preview's `.tabs` bar: six icon-over-label tabs, centred, with the selected tab filled and in accent.
+private struct SettingsTabBar: View {
+  @Binding var selection: MyraSettingsTab
+  let accent: Color
+
+  var body: some View {
+    HStack(spacing: 2) {
+      Spacer(minLength: 0)
+      ForEach(MyraSettingsTab.allCases) { tab in
+        let isSelected = selection == tab
+        Button {
+          selection = tab
+        } label: {
+          VStack(spacing: 3) {
+            Image(systemName: tab.symbol)
+              .font(.system(size: SettingsMetrics.tabIconSize))
+              .frame(width: SettingsMetrics.tabIconSize, height: SettingsMetrics.tabIconSize)
+            Text(tab.title)
+              .font(.system(size: SettingsMetrics.tabLabelSize))
+          }
+          .frame(minWidth: SettingsMetrics.tabMinWidth)
+          .padding(.horizontal, 10)
+          .padding(.vertical, 6)
+          .background(
+            isSelected ? MyraColor.fill2 : Color.clear,
+            in: RoundedRectangle(cornerRadius: SettingsMetrics.tabRadius))
+          .foregroundStyle(isSelected ? accent : MyraColor.text2)
+          .contentShape(RoundedRectangle(cornerRadius: SettingsMetrics.tabRadius))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(tab.title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+      }
+      Spacer(minLength: 0)
+    }
+    .padding(SettingsMetrics.tabBarPadding)
+    .frame(maxWidth: .infinity)
+    .background(MyraColor.fill)
+    .overlay(alignment: .bottom) {
+      Rectangle().fill(MyraColor.line).frame(height: 1)
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel("Settings sections")
+  }
+}
+
+/// The preview's `.foot`: the automatic-save note on the left and a Close button on the right.
+private struct SettingsFooter: View {
+  var body: some View {
+    HStack(spacing: 8) {
+      Text(SettingsMetrics.footerText)
+        .font(.system(size: 12))
+        .foregroundStyle(MyraColor.text2)
+      Spacer(minLength: 8)
+      Button("Close") {
+        NSApp.keyWindow?.performClose(nil)
+      }
+      .buttonStyle(MyraButtonStyle())
+      .keyboardShortcut(.cancelAction)
+    }
+    .padding(.horizontal, 22)
+    .padding(.vertical, 12)
+    .background(MyraColor.fill)
+    .overlay(alignment: .top) {
+      Rectangle().fill(MyraColor.line).frame(height: 1)
     }
   }
 }

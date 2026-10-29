@@ -258,7 +258,7 @@ private struct ChipView<ID: Hashable>: View {
       HStack(spacing: 5) {
         Text(item.title)
         if item.showsCaret {
-          Image(systemName: "chevron.down")
+          Text("▾")
             .font(.system(size: 10))
             .foregroundStyle(isOn ? Color.white.opacity(0.8) : MyraColor.text3)
         }
@@ -330,8 +330,53 @@ struct ToolbarPill<Content: View>: View {
   @ViewBuilder var content: Content
 
   var body: some View {
-    HStack(spacing: 8) { content }
-      .controlSize(.regular)
+    HStack(spacing: 2) {
+      content
+    }
+    .padding(3)
+    .background {
+      Capsule().fill(.ultraThinMaterial)
+      Capsule().fill(MyraColor.glass)
+    }
+    .overlay(Capsule().stroke(MyraColor.line, lineWidth: 1))
+  }
+}
+
+/// A toolbar action: optional SF Symbol, title, hover fill, and an accent-filled primary style.
+/// Apply `.disabled(_:)` to gate it, as the menu does.
+struct ToolbarButton: View {
+  let title: String
+  var systemImage: String?
+  var primary = false
+  let action: () -> Void
+
+  @State private var isHovering = false
+  @Environment(\.myraAccent) private var accent
+  @Environment(\.isEnabled) private var isEnabled
+
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: 6) {
+        if let systemImage {
+          Image(systemName: systemImage)
+            .font(.system(size: 13, weight: .medium))
+            .frame(width: 16, height: 16)
+        }
+        Text(title)
+      }
+      .font(.system(size: 13))
+      .padding(.horizontal, 10)
+      .padding(.vertical, 5)
+      .foregroundStyle(primary ? Color.white : MyraColor.text)
+      .background(
+        Capsule().fill(primary ? accent.color : (isHovering ? MyraColor.fill2 : .clear))
+      )
+      .contentShape(Capsule())
+      .opacity(isEnabled ? 1 : 0.4)
+    }
+    .buttonStyle(.plain)
+    .onHover { isHovering = $0 }
+    .help(title)
   }
 }
 
@@ -364,19 +409,31 @@ struct IconButton: View {
 // MARK: - Button style (`.btn`)
 
 /// The bordered button from the preview. `prominent` gives the accent-filled primary variant.
-struct MyraButtonStyle: PrimitiveButtonStyle {
+struct MyraButtonStyle: ButtonStyle {
   var prominent = false
 
   @Environment(\.myraAccent) private var accent
   @Environment(\.isEnabled) private var isEnabled
 
-  @ViewBuilder
   func makeBody(configuration: Configuration) -> some View {
-    if prominent {
-      Button(configuration).buttonStyle(.borderedProminent).controlSize(.regular)
-    } else {
-      Button(configuration).buttonStyle(.bordered).controlSize(.regular)
-    }
+    configuration.label
+      .font(.system(size: 13))
+      .padding(.horizontal, 12)
+      .padding(.vertical, 6)
+      .foregroundStyle(prominent ? Color.white : MyraColor.text)
+      .background(
+        RoundedRectangle(cornerRadius: 8)
+          .fill(
+            prominent
+              ? accent.color
+              : (configuration.isPressed ? MyraColor.fill2 : MyraColor.fill))
+      )
+      .overlay {
+        if !prominent {
+          RoundedRectangle(cornerRadius: 8).stroke(MyraColor.line, lineWidth: 1)
+        }
+      }
+      .opacity(isEnabled ? 1 : 0.4)
   }
 }
 
@@ -389,12 +446,25 @@ struct SearchField: View {
   var isFocused: FocusState<Bool>.Binding
 
   var body: some View {
-    TextField(prompt, text: $text)
-      .textFieldStyle(.roundedBorder)
-      .focused(isFocused)
-      .frame(minWidth: 180, idealWidth: 220, maxWidth: 260)
-      .accessibilityLabel(prompt)
-      .help(prompt)
+    HStack(spacing: 7) {
+      Image(systemName: "magnifyingglass")
+        .font(.system(size: 12, weight: .medium))
+        .foregroundStyle(MyraColor.text3)
+      TextField(prompt, text: $text)
+        .textFieldStyle(.plain)
+        .foregroundStyle(MyraColor.text)
+        .focused(isFocused)
+    }
+    .font(.system(size: 13))
+    .padding(.horizontal, 12)
+    .padding(.vertical, 6)
+    .frame(width: 260)
+    .background {
+      Capsule().fill(.ultraThinMaterial)
+      Capsule().fill(MyraColor.glass)
+    }
+    .overlay(Capsule().stroke(MyraColor.line, lineWidth: 1))
+    .accessibilityLabel(prompt)
   }
 }
 
@@ -414,11 +484,30 @@ struct SegmentedControl<Value: Hashable>: View {
   @Binding var selection: Value
 
   var body: some View {
-    Picker("View", selection: $selection) {
-      ForEach(options) { option in Text(option.title).tag(option.value) }
+    HStack(spacing: 0) {
+      ForEach(options) { option in
+        let selected = option.value == selection
+        Button {
+          selection = option.value
+        } label: {
+          Text(option.title)
+            .font(.system(size: 13, weight: selected ? .semibold : .regular))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 4)
+            .foregroundStyle(MyraColor.text)
+            .background(
+              RoundedRectangle(cornerRadius: 7)
+                .fill(selected ? MyraColor.content : .clear)
+                .shadow(color: .black.opacity(selected ? 0.15 : 0), radius: 1.5, y: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+      }
     }
-    .pickerStyle(.segmented)
-    .labelsHidden()
+    .padding(2)
+    .background(MyraColor.fill2, in: RoundedRectangle(cornerRadius: 9))
   }
 }
 

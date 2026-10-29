@@ -233,12 +233,6 @@ final class MediaInspectorModel: ObservableObject {
   @Published var technicalError: String?
   @Published var isProbing = false
   private let service = MetadataService()
-  private let allowsOnlineMetadata: Bool
-
-  init(allowsOnlineMetadata: Bool = !AppPersistence.isUsingProfileOverride) {
-    self.allowsOnlineMetadata = allowsOnlineMetadata
-  }
-
   private var lookupTask: Task<Void, Never>?
   private var probeTask: Task<Void, Never>?
   private var requestID = UUID()
@@ -263,19 +257,10 @@ final class MediaInspectorModel: ObservableObject {
     isLoading = true
     metadata = nil
     metadataError = nil
-    // Development profiles must never prompt for or use the personal profile's credentials.
-    guard allowsOnlineMetadata else {
-      isLoading = false
-      metadataError = "Online information is disabled in this development profile."
-      return
-    }
     lookupTask = Task { [weak self] in
       guard let self else { return }
       do {
-        // A Keychain permission prompt can block; keep the main thread available to the window.
-        let key = try await Task.detached(priority: .utility) { try OMDbKeyStore.read() }.value
-        try Task.checkCancellation()
-        guard requestID == id else { return }
+        let key = try OMDbKeyStore.read()
         let index = try? await library.database()
         let value = try await service.lookup(lookupIdentity, key: key, index: index)
         try Task.checkCancellation()

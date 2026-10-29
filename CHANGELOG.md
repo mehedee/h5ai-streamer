@@ -1,15 +1,5 @@
 # Changelog
 
-## 4.0.0 (build 14) — 2026-10-26
-
-- Deliver the redesigned native macOS window, toolbar, sidebar and Settings controls with consistent SF Symbols and system appearance.
-- Give playback controls separate timeline, transport and utility groups with generous margins and compact layout support.
-- Distinguish explicit and scheduled library refreshes and report paused, cancelled, partial and failed scans accurately.
-- Remove optional metadata credential reads from the startup index path; move metadata Keychain access off the UI thread.
-- Retain valid index chunks and failed-scope records across errors and cancellation.
-- Include the Home categories, artwork fallback, Ask Myra and experimental torrent workflow improvements developed since 3.0.3.
-- Preserve macOS 14 deployment compatibility, existing personal data and download paths.
-
 ## 3.0.4 (build 12) — 2026-10-26
 
 - Redesign Home in the style of Apple's media apps: search ("Search or ask Myra") and Pick Something, Myra AI, Filters and More move into the window toolbar; filters open in a popover with an active-filter summary and Clear Filters; the sidebar is grouped into Watch Now, Library (Sources, Downloaded), Torrents (Transfers) and Myra (Settings).

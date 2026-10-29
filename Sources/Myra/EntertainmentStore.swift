@@ -39,7 +39,6 @@ final class EntertainmentStore: ObservableObject {
   private let url: URL?
   private let service = DiscoveryService()
   private let automaticEnrichment: Bool
-  private let readMetadataToken: @Sendable () throws -> String
   private var canWrite = true
   @Published private(set) var isClearingContinueWatching = false
   private var clearedPlaybackIDs: Set<String> = []
@@ -126,11 +125,7 @@ final class EntertainmentStore: ObservableObject {
   private var reloadAgain = false
   private var reloadWaiters: [CheckedContinuation<Void, Never>] = []
 
-  init(
-    library: LibraryController, storageURL: URL? = nil, automaticEnrichment: Bool = true,
-    readMetadataToken: @escaping @Sendable () throws -> String = TMDBKeyStore.read
-  ) {
-    self.readMetadataToken = readMetadataToken
+  init(library: LibraryController, storageURL: URL? = nil, automaticEnrichment: Bool = true) {
     self.automaticEnrichment = automaticEnrichment
     self.library = library
     self.url =
@@ -186,12 +181,8 @@ final class EntertainmentStore: ObservableObject {
     let waiters = reloadWaiters
     reloadWaiters.removeAll()
     for waiter in waiters { waiter.resume() }
-    // The startup index awaits this restore. Optional metadata credentials must not gate it.
-    if automaticEnrichment, !enrichmentIDs.isEmpty, !library.isRefreshing {
-      let readToken = readMetadataToken
-      let hasToken =
-        (try? await Task.detached(priority: .utility) { try readToken().isEmpty }.value) == false
-      if hasToken, !Task.isCancelled { await enrich() }
+    if automaticEnrichment, !enrichmentIDs.isEmpty, (try? TMDBKeyStore.read().isEmpty) == false {
+      await enrich()
     }
   }
 
@@ -200,9 +191,7 @@ final class EntertainmentStore: ObservableObject {
     isEnriching = true
     defer { isEnriching = false }
     do {
-      let readToken = readMetadataToken
-      let token = try await Task.detached(priority: .utility) { try readToken() }.value
-      try Task.checkCancellation()
+      let token = try TMDBKeyStore.read()
       guard !token.isEmpty else { throw DiscoveryError.missingToken }
       let index = try await library.database()
       // A bounded batch avoids hammering providers when a large source is first indexed.

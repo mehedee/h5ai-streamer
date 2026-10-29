@@ -136,7 +136,13 @@ final class MyraAppDelegate: NSObject, NSApplicationDelegate {
   var terminationHandler: (() -> Void)?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
-    // Native title bars own window controls, dragging and activation.
+    DispatchQueue.main.async {
+      for window in NSApplication.shared.windows {
+        window.titlebarAppearsTransparent = true
+        window.backgroundColor = .clear
+        window.isOpaque = false
+      }
+    }
   }
 
   func applicationWillTerminate(_ notification: Notification) {
@@ -175,8 +181,8 @@ struct MyraApp: App {
         }
     }
     .defaultSize(width: 1_240, height: 800)
-    .windowStyle(.titleBar)
-    .windowToolbarStyle(.unified)
+    // The shell draws its own compact header beside the window buttons, as in the preview.
+    .windowStyle(.hiddenTitleBar)
     .commands {
       MyraCommands(coordinator: coordinator, player: coordinator.player)
     }

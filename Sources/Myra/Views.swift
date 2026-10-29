@@ -53,6 +53,7 @@ struct LibraryView: View {
       }
       .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
     }
+    .navigationTitle("Myra")
     .onReceive(NotificationCenter.default.publisher(for: MyraCommand.notification)) { note in
       // Find focuses the shell's search field; this page only handles Add Source.
       switch MyraCommand(notification: note) {
@@ -363,27 +364,6 @@ struct LibraryView: View {
   /// The row under the header, as the preview's `.crumbs`: where you are on the left; counts,
   /// search scope, layout, reload and download on the right. The shell's field is the search box.
   private var browseBar: some View {
-    ViewThatFits(in: .horizontal) {
-      HStack(spacing: 16) {
-        browseLocation.fixedSize()
-        Spacer(minLength: 12)
-        browseActions.fixedSize()
-      }
-      VStack(alignment: .leading, spacing: 12) {
-        browseLocation
-        ViewThatFits(in: .horizontal) {
-          browseActions.fixedSize()
-          ScrollView(.horizontal) { browseActions.fixedSize() }
-        }
-      }
-    }
-    .font(.system(size: 13))
-    .padding(.horizontal, 26)
-    .padding(.top, 4)
-    .padding(.bottom, 10)
-  }
-
-  private var browseLocation: some View {
     HStack(spacing: 8) {
       if showingGlobalResults {
         Image(systemName: "network").foregroundStyle(accent.color)
@@ -409,12 +389,7 @@ struct LibraryView: View {
           coordinator.currentURL == coordinator.currentCategory?.rootURL?.standardizedDirectoryURL)
         crumbs
       }
-    }
-    .lineLimit(1)
-  }
-
-  private var browseActions: some View {
-    HStack(spacing: 8) {
+      Spacer(minLength: 12)
       Text(browseCountText)
         .foregroundStyle(MyraColor.text2)
         .monospacedDigit()
@@ -474,6 +449,10 @@ struct LibraryView: View {
           ? coordinator.globalSearchSelection.isEmpty || coordinator.isEnqueueingGlobalDownloads
           : coordinator.selection.isEmpty || coordinator.isScanning)
     }
+    .font(.system(size: 13))
+    .padding(.horizontal, 26)
+    .padding(.top, 4)
+    .padding(.bottom, 10)
   }
 
   /// "Sources › Category › folder", with the current folder in bold.

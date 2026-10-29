@@ -118,32 +118,24 @@ struct PlayerStatusPill: View {
 /// The 16pt translucent glass used by the bottom bar and the buffering card.
 extension View {
   func playerGlass(radius: CGFloat) -> some View {
-    modifier(PlayerGlassModifier(radius: radius))
-  }
-}
-
-private struct PlayerGlassModifier: ViewModifier {
-  let radius: CGFloat
-  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-
-  func body(content: Content) -> some View {
-    content
-      .background {
-        if reduceTransparency {
-          RoundedRectangle(cornerRadius: radius).fill(Color(white: 0.12))
-        } else {
-          RoundedRectangle(cornerRadius: radius).fill(.regularMaterial)
-            .overlay(RoundedRectangle(cornerRadius: radius).fill(.black.opacity(0.35)))
+    background {
+      RoundedRectangle(cornerRadius: radius, style: .continuous)
+        .fill(.ultraThinMaterial)
+        .overlay {
+          RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .fill(Color(red: 30 / 255, green: 30 / 255, blue: 36 / 255).opacity(0.55))
         }
-      }
-      .overlay(RoundedRectangle(cornerRadius: radius).stroke(.white.opacity(0.18), lineWidth: 1))
-      .environment(\.colorScheme, .dark)
+    }
+    .overlay {
+      RoundedRectangle(cornerRadius: radius, style: .continuous)
+        .stroke(.white.opacity(0.12), lineWidth: 1)
+    }
   }
 }
 
-/// A 36pt white glyph button with the preview's 15% white hover and press fill.
+/// A 32pt white glyph button with the preview's 15% white hover and press fill.
 struct PlayerGlyphStyle: ButtonStyle {
-  var size: CGFloat = 36
+  var size: CGFloat = 32
 
   func makeBody(configuration: Configuration) -> some View {
     PlayerGlyphBody(label: configuration.label, isPressed: configuration.isPressed, size: size)

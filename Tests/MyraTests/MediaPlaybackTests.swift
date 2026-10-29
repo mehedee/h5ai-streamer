@@ -45,19 +45,6 @@ private final class MetadataFixtureProtocol: URLProtocol, @unchecked Sendable {
 }
 
 final class MediaPlaybackTests: XCTestCase {
-  @MainActor
-  func testIsolatedInspectorDoesNotStartCredentialOrMetadataLookup() {
-    let inspector = MediaInspectorModel(allowsOnlineMetadata: false)
-    inspector.identity = MediaIdentity(title: "Synthetic Movie")
-    inspector.load(library: LibraryController())
-    XCTAssertFalse(inspector.isLoading)
-    XCTAssertNil(inspector.metadata)
-    XCTAssertEqual(
-      inspector.metadataError, "Online information is disabled in this development profile.")
-    inspector.close()
-    XCTAssertNil(inspector.selected)
-  }
-
   func testEmptyDownloadQueueVisibilityIncludesPreparingAndHistory() {
     XCTAssertFalse(
       DownloadQueueVisibility.shouldShow(batchCount: 0, itemCount: 0, isPreparing: false))

@@ -83,7 +83,6 @@ struct HomeView: View {
   @State private var showingCustomise = false
   @FocusState private var searchFocused: Bool
   @Environment(\.myraAccent) private var accent
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   @State private var prepared = HomeCatalogueProjection()
   @State private var preparedFilter: HomeCatalogueFilter?
@@ -149,11 +148,7 @@ struct HomeView: View {
                 })
             HomeBrowseByRow(
               shelves: automaticShelves,
-              scrollTo: { id in
-                withAnimation(reduceMotion ? nil : .default) {
-                  proxy.scrollTo("shelf-\(id)", anchor: .top)
-                }
-              },
+              scrollTo: { id in withAnimation { proxy.scrollTo("shelf-\(id)", anchor: .top) } },
               customise: { showingCustomise = true }
             )
             .padding(.top, 26)
@@ -831,7 +826,6 @@ private struct HomeStillCard: View {
 private struct HeroButtonStyle: ButtonStyle {
   var prominent = false
   @Environment(\.myraAccent) private var accent
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
