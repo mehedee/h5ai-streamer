@@ -5,12 +5,14 @@ private func byteText(_ value: Int64) -> String {
   ByteCountFormatter.string(fromByteCount: max(0, value), countStyle: .file)
 }
 
-/// Transfers page: add-link bar, Now Streaming card, Active list, and open-video Discover tab.
+/// Transfers page: a Transfers | Search segmented control. Transfers holds the add-link bar,
+/// Now Streaming card and Active list; Search is the in-app Torznab search.
 struct TorrentsView: View {
   @ObservedObject var controller: TorrentController
   /// The shell's toolbar search; it narrows the Active list.
   var searchText = ""
-  @State private var tab = 0
+  /// Opens Settings > Torrents (indexer management). Supplied by the shell.
+  var onManageIndexers: (() -> Void)?
   @State private var link = ""
   @State private var removing: TorrentIdentity?
 
@@ -19,19 +21,21 @@ struct TorrentsView: View {
       HStack {
         SegmentedControl(
           options: [
-            SegmentOption(value: 0, title: "Transfers"),
-            SegmentOption(value: 1, title: "Discover"),
+            SegmentOption(value: TorrentsTab.transfers, title: "Transfers"),
+            SegmentOption(value: TorrentsTab.search, title: "Search"),
           ],
-          selection: $tab)
+          selection: $controller.selectedTab)
         Spacer(minLength: 0)
       }
       .padding(.horizontal, 26)
       .padding(.top, 8)
       .padding(.bottom, 14)
-      if tab == 0 {
+      if controller.selectedTab == .transfers {
         transfersPage
       } else {
-        TorrentDiscoveryView(controller: controller, model: controller.discovery)
+        TorrentSearchView(
+          controller: controller, model: controller.search, store: controller.indexers,
+          onManageIndexers: onManageIndexers)
       }
       if let notice = controller.notice {
         HStack {
@@ -355,6 +359,7 @@ struct TorrentAddSheet: View {
   @Environment(\.dismiss) private var dismiss
   @State private var chosen: Int?
   @State private var keepAfterWatching = false
+  @State private var intent = TorrentStartMode.play
 
   private var job: TorrentJob? { controller.jobs.first { $0.identity == identity } }
   private var files: [TorrentFile] { TorrentFile.playbackOrder(job?.files ?? []) }
@@ -408,15 +413,21 @@ struct TorrentAddSheet: View {
         Button("Close") { dismiss() }
         Spacer()
         Button("Download") { download() }
+          .buttonStyle(MyraButtonStyle(prominent: intent == .download))
+          .keyboardShortcut(intent == .download ? .defaultAction : nil)
           .disabled(selected == nil || !controller.hasConsent)
         Button("Play Now") { play() }
-          .keyboardShortcut(.defaultAction)
+          .buttonStyle(MyraButtonStyle(prominent: intent == .play))
+          .keyboardShortcut(intent == .play ? .defaultAction : nil)
           .disabled(selected == nil || !controller.hasConsent)
       }
     }
     .padding(24)
     .frame(minWidth: 620, minHeight: 420, maxHeight: 600)
     .onAppear {
+      // A search result chooses which action leads; the next sheet starts from Play Now again.
+      intent = controller.startIntent
+      controller.startIntent = .play
       keepAfterWatching = job?.keepDownload ?? false
       chosen = TorrentFile.defaultSelection(in: job?.files ?? [])?.index
     }
@@ -492,135 +503,6 @@ struct TorrentConsentSheet: View {
   }
 }
 
-/// The Discover segment: a search field with provider chips above the result rows.
-private struct TorrentDiscoveryView: View {
-  @ObservedObject var controller: TorrentController
-  @ObservedObject var model: TorrentDiscoveryModel
-  @FocusState private var searchFocused: Bool
-
-  private var providerItems: [ChipItem<String>] {
-    var items = [
-      ChipItem(id: "open", title: "Open Movies"),
-      ChipItem(id: "archive", title: "Internet Archive"),
-    ]
-    if !model.sources.isEmpty { items.append(ChipItem(id: "all", title: "All Sources")) }
-    items += model.sources.map { ChipItem(id: $0.id.uuidString, title: $0.name) }
-    return items
-  }
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      VStack(alignment: .leading, spacing: 10) {
-        HStack(spacing: 8) {
-          SearchField(text: $model.query, prompt: "Search titles", isFocused: $searchFocused)
-            .onSubmit { model.search() }
-          Button("Search") { model.search() }
-            .buttonStyle(MyraButtonStyle())
-          if model.searching {
-            ProgressView().controlSize(.small)
-            Button("Cancel") { model.cancel() }
-              .buttonStyle(MyraButtonStyle())
-          }
-        }
-        ChipBar(items: providerItems, isOn: { $0 == model.selectedProvider }) { id in
-          guard id != model.selectedProvider else { return }
-          model.selectedProvider = id
-          model.cancel()
-          model.search()
-        }
-      }
-      .padding(.horizontal, 26)
-      .padding(.top, 4)
-      .padding(.bottom, 14)
-      if !model.failures.isEmpty {
-        VStack(alignment: .leading) {
-          ForEach(model.failures, id: \.self) {
-            Text($0).font(.system(size: 12)).foregroundStyle(.orange)
-          }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 26)
-      }
-      if controller.importing {
-        HStack {
-          ProgressView().controlSize(.small)
-          Text("Importing torrent metadata…")
-          Button("Cancel") { controller.cancelImport() }
-        }
-        .font(.system(size: 12))
-        .padding(.horizontal, 26)
-      }
-      ScrollView {
-        VStack(alignment: .leading, spacing: 0) {
-          if !model.results.isEmpty {
-            RowCard(rows: model.results.map(resultRow))
-          }
-          if model.results.isEmpty && !model.searching {
-            Text("No matching torrents. Try another title or source.")
-              .font(.system(size: 13))
-              .foregroundStyle(MyraColor.text2)
-              .frame(maxWidth: .infinity)
-              .padding(.vertical, 40)
-          }
-          if model.hasMore {
-            Button("Load More") { model.search(more: true) }
-              .buttonStyle(MyraButtonStyle())
-              .disabled(model.searching)
-              .padding(.top, 12)
-              .frame(maxWidth: .infinity)
-          }
-          Text(
-            "Archive license declarations are supplied by uploaders. Verify permission at the source. Sources are searched only when requested."
-          )
-          .font(.system(size: 12))
-          .foregroundStyle(MyraColor.text3)
-          .padding(.top, 12)
-        }
-        .padding(.horizontal, 26)
-        .padding(.top, 4)
-        .padding(.bottom, 30)
-      }
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .alert(
-      "Discovery",
-      isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })
-    ) {
-      Button("OK") { model.error = nil }
-    } message: {
-      Text(model.error ?? "")
-    }
-  }
-
-  /// One discovery result: its provider, size and seeders, with Play and Download both opening the add sheet.
-  private func resultRow(_ item: TorrentDiscoveryItem) -> RowCardItem {
-    var meta = [item.provider]
-    if let size = item.size { meta.append(byteText(size)) }
-    if let seeders = item.seeders { meta.append("\(seeders) seeders") }
-    let busy = controller.importing || !controller.ready
-    return RowCardItem(
-      id: item.id, title: item.title,
-      thumbnailSymbol: item.archiveID == nil ? "film.stack" : "building.columns",
-      thumbnailColors: LibraryPalette.gradient(for: item.title),
-      meta: meta,
-      actions: [
-        RowCardAction(id: "play", title: "Play", systemImage: "play.fill", style: .button) {
-          guard !busy else { return }
-          controller.importDiscovery(item)
-        },
-        RowCardAction(
-          id: "download", title: "Download", systemImage: "arrow.down.to.line", style: .button
-        ) {
-          guard !busy else { return }
-          controller.importDiscovery(item)
-        },
-        RowCardAction(id: "source", title: "View source", systemImage: "arrow.up.right.square") {
-          NSWorkspace.shared.open(item.sourceURL)
-        },
-      ])
-  }
-}
-
 /// Brings the playback window forward. The player owns its window; this only locates it.
 @MainActor
 enum TorrentPlayerWindow {
@@ -639,6 +521,7 @@ struct TorrentSettingsSection: View {
   @ObservedObject var controller: TorrentController
   @State private var showReview = false
   var body: some View {
+    TorrentIndexerSettingsGroup(store: controller.indexers, search: controller.search)
     SettingsGroup(title: "Privacy") {
       SettingsRow(
         title: "Torrent networking",
@@ -679,75 +562,6 @@ struct TorrentSettingsSection: View {
     }
     .sheet(isPresented: $showReview) {
       TorrentConsentSheet(controller: controller)
-    }
-    TorznabSettingsSection(model: controller.discovery, ready: controller.ready)
-  }
-}
-
-private struct TorznabSettingsSection: View {
-  @ObservedObject var model: TorrentDiscoveryModel
-  var ready: Bool
-  @State private var name = ""
-  @State private var endpoint = ""
-  @State private var key = ""
-  @State private var error: String?
-  @State private var removing: TorznabSource?
-  var body: some View {
-    SettingsGroup(
-      title: "Discovery Sources",
-      note: "Add your own Torznab API endpoint. API keys stay in this Mac's Keychain."
-    ) {
-      SettingsRow(title: "Open Movies", detail: "Built in") {
-        StatusPill(text: "On", style: .ok)
-      }
-      SettingsRow(title: "Internet Archive", detail: "Built in") {
-        StatusPill(text: "On", style: .ok)
-      }
-      ForEach(model.sources) { source in
-        SettingsRow(title: source.name, detail: source.endpoint.absoluteString) {
-          Button("Remove…", role: .destructive) { removing = source }
-            .buttonStyle(MyraButtonStyle())
-        }
-      }
-      SettingsRow(title: "Source name") {
-        TextField("Name", text: $name).textFieldStyle(.roundedBorder).labelsHidden().frame(width: 220)
-      }
-      SettingsRow(title: "Torznab endpoint", detail: "HTTPS or localhost") {
-        TextField("https://…", text: $endpoint).textFieldStyle(.roundedBorder).labelsHidden().frame(width: 220)
-      }
-      SettingsRow(title: "API key", detail: "Optional") {
-        SecureField("API key", text: $key).textFieldStyle(.roundedBorder).labelsHidden().frame(width: 220)
-      }
-      SettingsRow(title: "Add a Torznab source") {
-        Button("Add…") {
-          do {
-            try model.addSource(name: name, endpoint: endpoint, key: key)
-            name = ""
-            endpoint = ""
-            key = ""
-            error = nil
-          } catch {
-            self.error =
-              "Could not save source. Use HTTPS or local loopback HTTP, and enter the API key separately."
-          }
-        }
-        .buttonStyle(MyraButtonStyle())
-        .disabled(!ready || name.isEmpty || endpoint.isEmpty)
-      }
-      if let error { SettingsInlineMessage(text: error, color: .red) }
-    }
-    .confirmationDialog(
-      "Remove discovery source?",
-      isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
-      titleVisibility: .visible
-    ) {
-      Button("Remove Source and API Key", role: .destructive) {
-        if let source = removing {
-          do { try model.removeSource(source) } catch { self.error = error.localizedDescription }
-        }
-        removing = nil
-      }
-      Button("Cancel", role: .cancel) { removing = nil }
     }
   }
 }
