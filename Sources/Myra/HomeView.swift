@@ -15,21 +15,14 @@ enum HomeLayout {
   static let shelfSpacing: CGFloat = 16
   /// Left inset so the first Up Next card is not clipped by the scroll edge.
   static let upNextLeadingInset: CGFloat = 16
-  /// A shelf shows this many cards until "See All" expands it.
+  /// A shelf previews this many cards; "See All" opens the whole category as a grid.
   static let shelfPreviewLimit = 60
 
-  static func visibleCount(total: Int, expanded: Bool) -> Int {
-    expanded ? total : min(total, shelfPreviewLimit)
+  static func visibleCount(total: Int) -> Int {
+    min(total, shelfPreviewLimit)
   }
 
-  static func seeAllTitle(expanded: Bool) -> String {
-    expanded ? "Show Fewer" : "See All"
-  }
-
-  /// A filter chip shows its selected value once one is chosen, otherwise its label.
-  static func filterChipTitle(label: String, selection: String) -> String {
-    selection.isEmpty ? label : selection
-  }
+  static let seeAllTitle = "See All"
 
   static func backdropCandidates(_ title: EntertainmentTitle) -> [ArtworkCandidate] {
     var candidates: [ArtworkCandidate] = []
@@ -54,12 +47,11 @@ struct HomeView: View {
   @ObservedObject var store: EntertainmentStore
   /// Shared with the shell's toolbar search field.
   private var query: String { coordinator.searchText }
-  @State private var genre = ""
-  @State private var language = ""
-  @State private var year = ""
-  @State private var source = ""
-  @State private var minimumRating = 0.0
-  @State private var hideWatched = false
+  /// The pinned filter bar's state, shared with the See All pages.
+  @ObservedObject var filters: LibraryFilterModel
+  /// Opens a shelf as a See All grid, or the Watchlist page. Set by the shell.
+  var openSeeAll: (SeeAllRequest) -> Void = { _ in }
+  var openWatchlist: () -> Void = {}
   @State private var details: EntertainmentTitle?
   @State private var choosing: EntertainmentTitle?
   @State private var pendingChoice: EntertainmentTitle?
@@ -73,7 +65,6 @@ struct HomeView: View {
   @State private var pendingAI = false
   @State private var randomPick: EntertainmentTitle?
   @State private var randomPickFilters = "your current filters"
-  @State private var expandedShelves: Set<String> = []
   @State private var mood: MyraMood?
   @State private var tonight: [MyraRecommendation] = []
   @State private var tonightIndex = 0
@@ -88,28 +79,61 @@ struct HomeView: View {
   @State private var preparedFilter: HomeCatalogueFilter?
   private static let projectionWorker = HomeProjectionWorker()
   private var filter: HomeCatalogueFilter {
-    .init(
-      query: query, genre: genre, language: language, year: year, source: source,
-      minimumRating: minimumRating, hideWatched: hideWatched, revision: store.projectionRevision)
+    .init(query: query, selection: filters.selection, revision: store.projectionRevision)
   }
   private var filtered: [EntertainmentTitle] { prepared.filtered }
-  private var genres: [String] { prepared.genres }
-  private var languages: [String] { prepared.languages }
-  private var years: [String] { prepared.years }
-  private var sources: [String] { prepared.sources }
   private var ratedMovies: [EntertainmentTitle] { prepared.movies }
   private var recommendedSeries: [EntertainmentTitle] { prepared.series }
   private var latest: [EntertainmentTitle] { prepared.latest }
   private var watchlist: [EntertainmentTitle] { prepared.watchlist }
   private var automaticShelves: [HomeAutomaticShelf] { prepared.shelves }
 
-  init(coordinator: AppCoordinator, store: EntertainmentStore, initialMood: MyraMood? = nil) {
+  init(
+    coordinator: AppCoordinator, store: EntertainmentStore, initialMood: MyraMood? = nil,
+    filters: LibraryFilterModel = LibraryFilterModel(),
+    openSeeAll: @escaping (SeeAllRequest) -> Void = { _ in },
+    openWatchlist: @escaping () -> Void = {}
+  ) {
     self.coordinator = coordinator
     self.store = store
+    self.filters = filters
+    self.openSeeAll = openSeeAll
+    self.openWatchlist = openWatchlist
     _mood = State(initialValue: initialMood)
   }
 
   var body: some View {
+    VStack(spacing: 0) {
+      filterBar
+      pageScroll
+    }
+  }
+
+  /// The pinned filter bar (`.fbar`). Its trailing menu keeps the page's less common actions.
+  private var filterBar: some View {
+    LibraryFilterBar(
+      model: filters, options: prepared.options, shown: filtered.count,
+      total: store.catalogue.count
+    ) {
+      Menu {
+        Button("Ask Myra…") { askMyra() }
+        Divider()
+        Button(store.isEnriching ? "Updating Metadata…" : "Update Metadata") {
+          Task { await store.enrich() }
+        }
+        .disabled(store.isEnriching || store.catalogue.isEmpty)
+        Button("Manage Collections…") { showingCollections = true }
+        Button("Export / Import…") { showingTransfer = true }
+      } label: {
+        Image(systemName: "ellipsis.circle")
+      }
+      .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+      .help("More actions")
+      .accessibilityLabel("More actions")
+    }
+  }
+
+  private var pageScroll: some View {
     ScrollView {
       ScrollViewReader { proxy in
         VStack(alignment: .leading, spacing: 0) {
@@ -152,34 +176,41 @@ struct HomeView: View {
               customise: { showingCustomise = true }
             )
             .padding(.top, 26)
+            shelf(
+              "Watchlist", subtitle: "Saved to watch later", titles: watchlist,
+              seeAll: openWatchlist)
             ForEach(automaticShelves) { shelf in
               self.shelf(
                 shelf.name, subtitle: shelf.subtitle, titles: shelf.titles,
-                anchor: "shelf-\(shelf.id)")
+                anchor: "shelf-\(shelf.id)",
+                seeAll: { openSeeAll(.init(name: shelf.name, source: .automatic(shelf.id))) })
             }
-            filterRow.padding(.top, 30)
             shelf(
               "Top Rated Movies", subtitle: "TMDB ratings weighted by vote count • minimum 20 votes",
-              titles: ratedMovies)
+              titles: ratedMovies, seeAll: { openSeeAll(.init(name: "Top Rated Movies", source: .topRated)) })
             shelf(
               "Recently Added", subtitle: "First discovered by your local index",
-              titles: prepared.recent)
+              titles: prepared.recent,
+              seeAll: { openSeeAll(.init(name: "Recently Added", source: .recent)) })
             shelf(
               "Series to Watch", subtitle: "Unwatched shows available in your sources",
-              titles: recommendedSeries)
+              titles: recommendedSeries,
+              seeAll: { openSeeAll(.init(name: "Series to Watch", source: .series)) })
             shelf(
               "Latest Releases", subtitle: "Release dates from matched titles in your index",
-              titles: latest)
-            shelf("Watchlist", subtitle: "Saved for later", titles: watchlist)
+              titles: latest,
+              seeAll: { openSeeAll(.init(name: "Latest Releases", source: .latest)) })
             if !store.newEpisodeIDs.isEmpty {
               shelf(
                 "New Episodes", subtitle: "Newly indexed episodes of shows you follow",
-                titles: filtered.filter { $0.versions.contains { store.hasNewEpisode($0) } })
+                titles: filtered.filter { $0.versions.contains { store.hasNewEpisode($0) } },
+                seeAll: { openSeeAll(.init(name: "New Episodes", source: .newEpisodes)) })
             }
             ForEach(store.personal.collections) { collection in
               shelf(
                 collection.name, subtitle: "Personal collection",
-                titles: filtered.filter { collection.titleIDs.contains($0.id) })
+                titles: filtered.filter { collection.titleIDs.contains($0.id) },
+                seeAll: { openSeeAll(.init(name: collection.name, source: .collection(collection.id))) })
             }
             Text(
               "Availability reflects the latest index, and a source may be offline. Metadata provided by TMDB. Myra uses the TMDB API but is not endorsed or certified by TMDB."
@@ -291,11 +322,6 @@ struct HomeView: View {
     }
   }
 
-  private var activeFilterCount: Int {
-    [genre, language, year, source].filter { !$0.isEmpty }.count + (minimumRating > 0 ? 1 : 0)
-      + (hideWatched ? 1 : 0)
-  }
-
   private var askMyraRow: some View {
     Button {
       askMyra()
@@ -312,78 +338,6 @@ struct HomeView: View {
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-  }
-
-  /// Visible filter chips (`.chips` after the section head). Each chip opens its menu or toggles.
-  private var filterRow: some View {
-    HStack(alignment: .center, spacing: 8) {
-      FlowLayout(spacing: 6) {
-        filterMenu("Genre", selection: $genre, values: genres)
-        filterMenu("Language", selection: $language, values: languages)
-        filterMenu("Year", selection: $year, values: years)
-        filterMenu("Source", selection: $source, values: sources)
-        Menu {
-          Picker("Rating", selection: $minimumRating) {
-            Text("Any Rating").tag(0.0)
-            ForEach([5.0, 6, 7, 8, 9], id: \.self) { Text("\(Int($0))+ / 10").tag($0) }
-          }
-        } label: {
-          HomeChip(
-            title: minimumRating > 0 ? "\(Int(minimumRating))+ rating" : "Rating",
-            isOn: minimumRating > 0, caret: true)
-        }
-        // The button menu style keeps the chip label; borderless menus redraw it as plain text.
-        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-        .accessibilityLabel("Rating filter")
-        Button {
-          hideWatched.toggle()
-        } label: {
-          HomeChip(title: "Hide watched", isOn: hideWatched)
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(hideWatched ? .isSelected : [])
-      }
-      Spacer(minLength: 8)
-      Button("Reset") { clearFilters() }
-        .buttonStyle(.plain)
-        .foregroundStyle(accent.color)
-        .disabled(activeFilterCount == 0)
-      Menu {
-        Button("Recommend for Tonight…") { openAI(.smartPick) }
-        Button("Ask Myra…") { openAI(.assistant) }
-        Button("Make a Collection…") { openAI(.collection) }
-        Divider()
-        Button(store.isEnriching ? "Updating Metadata…" : "Update Metadata") {
-          Task { await store.enrich() }
-        }
-        .disabled(store.isEnriching || store.catalogue.isEmpty)
-        Button("Manage Collections…") { showingCollections = true }
-        Button("Export / Import…") { showingTransfer = true }
-      } label: {
-        Image(systemName: "ellipsis.circle")
-      }
-      .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-      .help("More actions")
-      .accessibilityLabel("More actions")
-    }
-    .padding(.bottom, 4)
-  }
-
-  private func filterMenu(_ label: String, selection: Binding<String>, values: [String])
-    -> some View
-  {
-    Menu {
-      Picker(label, selection: selection) {
-        Text("All").tag("")
-        ForEach(values, id: \.self) { Text($0).tag($0) }
-      }
-    } label: {
-      HomeChip(
-        title: HomeLayout.filterChipTitle(label: label, selection: selection.wrappedValue),
-        isOn: !selection.wrappedValue.isEmpty, caret: true)
-    }
-    .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-    .accessibilityLabel("\(label) filter")
   }
 
   /// Up Next: wide 16:9 stills with a 16pt inset at the leading edge.
@@ -425,37 +379,32 @@ struct HomeView: View {
   /// A titled shelf of posters with its count and a "See All" control. Empty shelves are hidden.
   @ViewBuilder
   private func shelf(
-    _ name: String, subtitle: String, titles: [EntertainmentTitle], anchor: String? = nil
+    _ name: String, subtitle: String, titles: [EntertainmentTitle], anchor: String? = nil,
+    seeAll: @escaping () -> Void = {}
   ) -> some View {
     if !titles.isEmpty {
-      let canExpand = titles.count > HomeLayout.shelfPreviewLimit
-      let expanded = canExpand && expandedShelves.contains(name)
-      let toggleExpanded: () -> Void = {
-        if !expandedShelves.insert(name).inserted { expandedShelves.remove(name) }
-      }
       VStack(alignment: .leading, spacing: 0) {
-        // "See All" reveals the cards beyond the preview limit; shelves within it show every card.
+        // The shelf previews the first cards; See All opens the whole category as a grid.
         SectionHeader(
-          title: name, count: titles.count,
-          actionTitle: HomeLayout.seeAllTitle(expanded: expanded),
-          action: toggleExpanded
-        )
+          title: name, count: titles.count, actionTitle: HomeLayout.seeAllTitle, action: seeAll)
         Text(subtitle)
           .font(.system(size: 12)).foregroundStyle(MyraColor.text2)
-          .padding(.bottom, 12)
+          .padding(.bottom, 4)
+        // The hover ring sits outside the poster, so the strip is padded by the ring's room and
+        // pulled back by the same amount; the ring is never cut at the shelf's edges.
         ScrollView(.horizontal) {
           LazyHStack(alignment: .top, spacing: HomeLayout.shelfSpacing) {
-            ForEach(
-              titles.prefix(HomeLayout.visibleCount(total: titles.count, expanded: expanded))
-            ) { title in
+            ForEach(titles.prefix(HomeLayout.visibleCount(total: titles.count))) { title in
               HomePosterCard(
                 title: title, store: store,
                 play: { start(title) }, details: { details = title })
                 .frame(width: HomeLayout.posterWidth, alignment: .topLeading)
             }
           }
-          .padding(.bottom, 6)
+          .padding(TitleGridLayout.ringInset)
         }
+        .scrollIndicators(.hidden)
+        .padding(-TitleGridLayout.ringInset)
       }
       .id(anchor ?? name)
     }
@@ -510,15 +459,6 @@ struct HomeView: View {
     }
   }
 
-  private func clearFilters() {
-    genre = ""
-    language = ""
-    year = ""
-    source = ""
-    minimumRating = 0
-    hideWatched = false
-  }
-
   private func askMyra() {
     aiFeature = .assistant
     aiTitle = nil
@@ -528,12 +468,7 @@ struct HomeView: View {
 
   private func resetFilters() {
     coordinator.searchText = ""
-    genre = ""
-    language = ""
-    year = ""
-    source = ""
-    minimumRating = 0
-    hideWatched = false
+    filters.clear()
   }
 
   private func tonightContext(now: Date = .now) -> MyraViewingContext {
@@ -683,17 +618,18 @@ struct HomeView: View {
   private var filterDescription: String {
     var terms = [String]()
     if !query.isEmpty { terms.append("search ‘\(query)’") }
-    if !genre.isEmpty { terms.append(genre) }
-    if !language.isEmpty { terms.append(language) }
-    if !year.isEmpty { terms.append(year) }
-    if !source.isEmpty { terms.append(source) }
-    if minimumRating > 0 { terms.append("rating \(Int(minimumRating))+") }
+    let selection = filters.selection
+    if selection.kind != .all { terms.append(selection.kind.title.lowercased()) }
+    for facet in LibraryFacet.allCases {
+      terms.append(contentsOf: selection.values(for: facet).sorted())
+    }
+    if selection.hideWatched { terms.append("unwatched only") }
     return terms.isEmpty ? "your current filters (all sources)" : terms.joined(separator: ", ")
   }
 }
 
 /// A poster card (`.card`): a click opens details, and the context menu holds the title actions.
-private struct HomePosterCard: View {
+struct HomePosterCard: View {
   let title: EntertainmentTitle
   @ObservedObject var store: EntertainmentStore
   let play: () -> Void
@@ -706,15 +642,21 @@ private struct HomePosterCard: View {
   }
 
   var body: some View {
-    Button(action: details) {
-      MediaCard(
-        title: title.displayName, subtitle: subtitle,
-        posterURL: title.posterURL,
-        rating: (title.metadata?.rating ?? 0) > 0 ? title.metadata?.rating : nil,
-        watched: store.personal.watched.contains(title.id))
-    }
-    .buttonStyle(.plain)
+    // The card opens details on a click; the bookmark inside it is its own button.
+    MediaCard(
+      title: title.displayName, subtitle: subtitle,
+      posterURL: title.posterURL,
+      rating: (title.metadata?.rating ?? 0) > 0 ? title.metadata?.rating : nil,
+      watched: store.personal.watched.contains(title.id),
+      isSaved: store.personal.watchlist.contains(title.id),
+      toggleSaved: { store.toggleWatchlist(title.id) }
+    )
+    .contentShape(Rectangle())
+    .onTapGesture(perform: details)
+    .accessibilityElement(children: .contain)
     .accessibilityLabel("\(title.displayName) details")
+    .accessibilityAddTraits(.isButton)
+    .accessibilityAction(named: "Open details", details)
     .contextMenu { menuItems }
   }
 
@@ -919,12 +861,7 @@ enum HomeShelfPresentation {
 
 struct HomeCatalogueFilter: Hashable, Sendable {
   var query: String
-  var genre: String
-  var language: String
-  var year: String
-  var source: String
-  var minimumRating: Double
-  var hideWatched: Bool
+  var selection: LibraryFilterSelection
   var revision: Int
 }
 
@@ -935,40 +872,29 @@ struct HomeCatalogueProjection: Sendable {
   var latest: [EntertainmentTitle] = []
   var recent: [EntertainmentTitle] = []
   var watchlist: [EntertainmentTitle] = []
-  var genres: [String] = []
-  var languages: [String] = []
-  var years: [String] = []
-  var sources: [String] = []
+  /// Facet options with counts for the filter bar, from the whole catalogue.
+  var options = LibraryFilterOptions()
   /// Automatic shelves built from the filtered titles, in the user's arrangement, hidden shelves removed.
   var shelves: [HomeAutomaticShelf] = []
 }
 
 actor HomeProjectionWorker {
+  private let facets: any LibraryFacetProviding
+
+  init(facets: any LibraryFacetProviding = CatalogueFacetProvider()) {
+    self.facets = facets
+  }
+
   func prepare(
     _ catalogue: [EntertainmentTitle], personal: EntertainmentPersonalData,
     filter: HomeCatalogueFilter
   ) throws -> HomeCatalogueProjection {
     var result = HomeCatalogueProjection()
-    var genres: Set<String> = []
-    var languages: Set<String> = []
-    var years: Set<String> = []
-    var sources: Set<String> = []
     for title in catalogue {
       try Task.checkCancellation()
-      genres.formUnion(title.metadata?.genres ?? [])
-      if let language = title.metadata?.language { languages.insert(language) }
-      if let year = title.year { years.insert(year) }
-      for version in title.versions { sources.insert(version.media.categoryName) }
       guard
         filter.query.isEmpty || title.displayName.localizedCaseInsensitiveContains(filter.query),
-        filter.genre.isEmpty || title.metadata?.genres.contains(filter.genre) == true,
-        filter.language.isEmpty || title.metadata?.language == filter.language,
-        filter.year.isEmpty || title.year == filter.year
-          || title.metadata?.releaseDate?.hasPrefix(filter.year) == true,
-        filter.source.isEmpty
-          || title.versions.contains(where: { $0.media.categoryName == filter.source }),
-        filter.minimumRating == 0 || (title.metadata?.rating ?? 0) >= filter.minimumRating,
-        !filter.hideWatched || !personal.watched.contains(title.id)
+        filter.selection.matches(title, watched: personal.watched)
       else { continue }
       result.filtered.append(title)
       if title.kind == .movie && (title.metadata?.voteCount ?? 0) >= 20 {
@@ -989,10 +915,7 @@ actor HomeProjectionWorker {
     result.series.sort { score($0) > score($1) }
     result.latest.sort { ($0.latestReleaseDate ?? "") > ($1.latestReleaseDate ?? "") }
     result.recent = result.filtered.sorted { $0.latestDiscovered > $1.latestDiscovered }
-    result.genres = genres.sorted()
-    result.languages = languages.sorted()
-    result.years = years.sorted(by: >)
-    result.sources = sources.sorted()
+    result.options = facets.options(for: catalogue)
     result.shelves = HomeShelfBuilder.shelves(
       from: result.filtered, preferences: personal.homeCategories ?? HomeCategoryPreferences())
     return result

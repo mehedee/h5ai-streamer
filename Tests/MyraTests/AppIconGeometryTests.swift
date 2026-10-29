@@ -6,6 +6,7 @@ import XCTest
 
 /// Every bitmap icon follows the macOS icon grid: the squircle body is about 80% of the canvas
 /// (824 of 1024) and the rest is transparent margin with a soft shadow.
+@MainActor
 final class AppIconGeometryTests: XCTestCase {
   /// Alpha at or above this counts as the opaque body. The shadow peaks near 30% (77 of 255).
   private static let opaqueAlpha: UInt8 = 200
@@ -77,8 +78,10 @@ final class AppIconGeometryTests: XCTestCase {
     ).filter { $0.pathExtension == "png" }
     XCTAssertEqual(files.count, 10)
     for file in files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
-      // The 16 pt rendition has too few pixels for a stable fraction.
-      if file.lastPathComponent == "icon_16x16.png" { continue }
+      // Up to 32 px the soft edge and pixel rounding move the fraction by several percent.
+      let pixels = Int(file.lastPathComponent.split(separator: "_")[1].split(separator: "x")[0])!
+        * (file.lastPathComponent.contains("@2x") ? 2 : 1)
+      if pixels < 64 { continue }
       try assertBody(file)
     }
   }

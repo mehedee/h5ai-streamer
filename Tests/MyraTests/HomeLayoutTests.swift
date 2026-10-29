@@ -17,20 +17,10 @@ final class HomeLayoutTests: XCTestCase {
     XCTAssertEqual(HomeLayout.upNextLeadingInset, 16)
   }
 
-  func testShelfShowsAtMostSixtyCardsUntilExpanded() {
-    XCTAssertEqual(HomeLayout.visibleCount(total: 200, expanded: false), 60)
-    XCTAssertEqual(HomeLayout.visibleCount(total: 200, expanded: true), 200)
-    XCTAssertEqual(HomeLayout.visibleCount(total: 12, expanded: false), 12)
-  }
-
-  func testSeeAllTitleFollowsExpansion() {
-    XCTAssertEqual(HomeLayout.seeAllTitle(expanded: false), "See All")
-    XCTAssertEqual(HomeLayout.seeAllTitle(expanded: true), "Show Fewer")
-  }
-
-  func testFilterChipShowsSelectedValueOrLabel() {
-    XCTAssertEqual(HomeLayout.filterChipTitle(label: "Genre", selection: ""), "Genre")
-    XCTAssertEqual(HomeLayout.filterChipTitle(label: "Genre", selection: "Comedy"), "Comedy")
+  func testShelfPreviewsAtMostSixtyCardsAndSeeAllOpensTheRest() {
+    XCTAssertEqual(HomeLayout.visibleCount(total: 200), 60)
+    XCTAssertEqual(HomeLayout.visibleCount(total: 12), 12)
+    XCTAssertEqual(HomeLayout.seeAllTitle, "See All")
   }
 
   func testBackdropPrefersBackdropThenPosterThenTitleCard() {

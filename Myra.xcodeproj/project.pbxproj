@@ -6,7 +6,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		AED2DEBC7B59CFDF3B01CDB1 /* AppIconGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADD2DEBC7B59CFDF3B01CDB1 /* AppIconGeometryTests.swift */; };
+		AE26FD73EA98558141456E31 /* TitleGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD26FD73EA98558141456E31 /* TitleGrid.swift */; };
+		AE3FC413AB66547A187BA126 /* Translucency.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD3FC413AB66547A187BA126 /* Translucency.swift */; };
+		AEB5980232C6470F7A7F88C4 /* IndexingIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADB5980232C6470F7A7F88C4 /* IndexingIndicator.swift */; };
+		AEB2F1D36220CC093FCC3D4E /* FilterBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADB2F1D36220CC093FCC3D4E /* FilterBar.swift */; };
+		AED1D52AF2F445C7F1F6585B /* LibraryFilters.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADD1D52AF2F445C7F1F6585B /* LibraryFilters.swift */; };
+		AE1206C35597796D06178D71 /* WatchlistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD1206C35597796D06178D71 /* WatchlistStore.swift */; };
+		AEE90ABBB7327E703BB4B8C5 /* EngineSeams.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADE90ABBB7327E703BB4B8C5 /* EngineSeams.swift */; };
 		FB20000000000000000000001 /* TorrentController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB10000000000000000000001; };
 		FB20000000000000000000002 /* TorrentEngineClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB10000000000000000000002; };
 		FB20000000000000000000003 /* TorrentDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB10000000000000000000003; };
@@ -119,7 +125,13 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		ADD2DEBC7B59CFDF3B01CDB1 /* AppIconGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconGeometryTests.swift; sourceTree = "<group>"; };
+		AD26FD73EA98558141456E31 /* TitleGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell/TitleGrid.swift; sourceTree = "<group>"; };
+		AD3FC413AB66547A187BA126 /* Translucency.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell/Translucency.swift; sourceTree = "<group>"; };
+		ADB5980232C6470F7A7F88C4 /* IndexingIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell/IndexingIndicator.swift; sourceTree = "<group>"; };
+		ADB2F1D36220CC093FCC3D4E /* FilterBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell/FilterBar.swift; sourceTree = "<group>"; };
+		ADD1D52AF2F445C7F1F6585B /* LibraryFilters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell/LibraryFilters.swift; sourceTree = "<group>"; };
+		AD1206C35597796D06178D71 /* WatchlistStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell/WatchlistStore.swift; sourceTree = "<group>"; };
+		ADE90ABBB7327E703BB4B8C5 /* EngineSeams.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell/EngineSeams.swift; sourceTree = "<group>"; };
 		FB10000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentController.swift; sourceTree = "<group>"; };
 		FB10000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentEngineClient.swift; sourceTree = "<group>"; };
 		FB10000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentDiscovery.swift; sourceTree = "<group>"; };
@@ -264,6 +276,13 @@
 		C01000000000000000000002 /* Myra */ = {
 			isa = PBXGroup;
 			children = (
+				AD26FD73EA98558141456E31 /* TitleGrid.swift */,
+				AD3FC413AB66547A187BA126 /* Translucency.swift */,
+				ADB5980232C6470F7A7F88C4 /* IndexingIndicator.swift */,
+				ADB2F1D36220CC093FCC3D4E /* FilterBar.swift */,
+				ADD1D52AF2F445C7F1F6585B /* LibraryFilters.swift */,
+				AD1206C35597796D06178D71 /* WatchlistStore.swift */,
+				ADE90ABBB7327E703BB4B8C5 /* EngineSeams.swift */,
 				0D730A0F5A0E3071F63F90C5 /* AIPanelCards.swift */,
 				467B383BAE96DC0E3070099E /* PlayerOverlay.swift */,
 				36D7D6DF67AEF8514FBA1AF9 /* SettingsRows.swift */,
@@ -351,7 +370,6 @@
 		C01000000000000000000004 /* MyraTests */ = {
 			isa = PBXGroup;
 			children = (
-				ADD2DEBC7B59CFDF3B01CDB1 /* AppIconGeometryTests.swift */,
 				FA10000000000000000000004,
 				B00200000000000000000001,
 				F41000000000000000000012,
@@ -461,6 +479,13 @@ F44000000000000000000001, F44000000000000000000002,
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AE26FD73EA98558141456E31 /* TitleGrid.swift in Sources */,
+				AE3FC413AB66547A187BA126 /* Translucency.swift in Sources */,
+				AEB5980232C6470F7A7F88C4 /* IndexingIndicator.swift in Sources */,
+				AEB2F1D36220CC093FCC3D4E /* FilterBar.swift in Sources */,
+				AED1D52AF2F445C7F1F6585B /* LibraryFilters.swift in Sources */,
+				AE1206C35597796D06178D71 /* WatchlistStore.swift in Sources */,
+				AEE90ABBB7327E703BB4B8C5 /* EngineSeams.swift in Sources */,
 				F6230DC7251467450574210B /* AIPanelCards.swift in Sources */,
 				90F2D00508E831176340587C /* PlayerOverlay.swift in Sources */,
 				B872EEDD9BD583A0D4854D42 /* SettingsRows.swift in Sources */,
@@ -541,7 +566,6 @@ F44000000000000000000001, F44000000000000000000002,
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AED2DEBC7B59CFDF3B01CDB1 /* AppIconGeometryTests.swift in Sources */,
 				FA20000000000000000000004,
 				F42000000000000000000007,
 				F42000000000000000000008,

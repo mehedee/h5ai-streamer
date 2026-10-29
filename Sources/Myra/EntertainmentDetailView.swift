@@ -157,11 +157,17 @@ struct EntertainmentDetailView: View {
     FlowLayout(spacing: 8) {
       Button(current.resumeVersion == nil ? "Play" : "Resume") { play(current) }
         .buttonStyle(MyraButtonStyle(prominent: true))
-      Button(
-        store.personal.watchlist.contains(current.id)
-          ? "Remove from Watchlist" : "Add to Watchlist"
-      ) { store.toggleWatchlist(current.id) }
-        .buttonStyle(MyraButtonStyle())
+      // A toggle: filled with the accent while the title is saved.
+      let saved = store.personal.watchlist.contains(current.id)
+      Button {
+        store.toggleWatchlist(current.id)
+      } label: {
+        Label("Watchlist", systemImage: saved ? "bookmark.fill" : "bookmark")
+      }
+      .buttonStyle(MyraButtonStyle(prominent: saved))
+      .help(saved ? "Remove from Watchlist" : "Add to Watchlist")
+      .accessibilityLabel(saved ? "Remove from Watchlist" : "Add to Watchlist")
+      .accessibilityAddTraits(saved ? .isSelected : [])
       Button(
         store.personal.watched.contains(current.id) ? "Mark unwatched" : "Mark watched"
       ) { store.toggleWatched(current.id) }
@@ -206,17 +212,12 @@ struct EntertainmentDetailView: View {
     -> some View
   {
     Menu {
-      Button("More Like This") { aiAction(.similar, current) }
-      Button("Compare Titles") { aiAction(.compare, current) }
-      Button("Short Summary") { aiAction(.summary, current) }
-      Button("Why This Title?") { aiAction(.explain, current) }
-      Button("Suggest Mood Tags") { aiAction(.moodTags, current) }
-      Button("Translate Description") { aiAction(.translate, current) }
-      Button("Episode Recap") { aiAction(.recap, current) }
-        .disabled(current.kind != .series)
-      Button("Suggest Match Corrections") { aiAction(.cleanup, current) }
+      // The same three contextual actions as the Ask Myra box.
+      ForEach(MyraAskAction.actions(forTitle: current)) { action in
+        Button(action.title) { aiAction(action.feature, current) }
+      }
     } label: {
-      Label("AI tools", systemImage: "sparkles")
+      Label("Ask Myra", systemImage: "sparkles")
     }
     .menuStyle(.borderlessButton)
     .fixedSize()

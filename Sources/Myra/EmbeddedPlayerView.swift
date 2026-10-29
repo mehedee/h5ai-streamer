@@ -209,26 +209,30 @@ struct EmbeddedPlayerView: View {
           .foregroundStyle(.white.opacity(0.7))
       }
     }
-    .padding(.horizontal, 16)
-    .padding(.vertical, 12)
-    .frame(maxWidth: 760)
-    .playerGlass(radius: 16)
-    .padding(.horizontal, 16)
-    .padding(.bottom, 18)
+    // The wide bar from the preview: up to 960 pt, with 36 pt of padding inside.
+    .padding(.horizontal, PlayerBarLayout.innerPadding)
+    .padding(.vertical, 14)
+    .frame(maxWidth: PlayerBarLayout.maxWidth)
+    .playerGlass(radius: 18)
+    .padding(.horizontal, PlayerBarLayout.outerMargin)
+    .padding(.bottom, 22)
     .frame(maxWidth: .infinity)
     .onHover { player.hoverControls($0) }
   }
 
   private var crow: some View {
     HStack(spacing: 4) {
-      Button {
-        player.navigate(offset: -1)
-      } label: {
-        Image(systemName: "backward.end.fill")
+      if showsEpisodeControls {
+        Button {
+          player.navigate(offset: -1)
+        } label: {
+          Image(systemName: "backward.end.fill")
+        }
+        .buttonStyle(PlayerGlyphStyle())
+        .disabled(!player.canGoPrevious).accessibilityIdentifier("player.previous")
+        .help("Previous episode (⌘[)")
+        .accessibilityLabel("Previous episode")
       }
-      .buttonStyle(PlayerGlyphStyle())
-      .disabled(!player.canGoPrevious).accessibilityIdentifier("player.previous").help(
-        "Previous video")
       Button {
         player.jump(seconds: -10)
       } label: {
@@ -247,13 +251,17 @@ struct EmbeddedPlayerView: View {
         Image(systemName: "goforward.10")
       }
       .buttonStyle(PlayerGlyphStyle()).disabled(!player.isSeekable).help("Forward 10 seconds")
-      Button {
-        player.navigate(offset: 1)
-      } label: {
-        Image(systemName: "forward.end.fill")
+      if showsEpisodeControls {
+        Button {
+          player.navigate(offset: 1)
+        } label: {
+          Image(systemName: "forward.end.fill")
+        }
+        .buttonStyle(PlayerGlyphStyle())
+        .disabled(!player.canGoNext).accessibilityIdentifier("player.next")
+        .help("Next episode (⌘])")
+        .accessibilityLabel("Next episode")
       }
-      .buttonStyle(PlayerGlyphStyle())
-      .disabled(!player.canGoNext).accessibilityIdentifier("player.next").help("Next video")
       Button {
         player.stop()
       } label: {
@@ -287,14 +295,17 @@ struct EmbeddedPlayerView: View {
           .foregroundStyle(player.repeatEnabled ? Color.accentColor : Color.white)
       }
       .buttonStyle(PlayerGlyphStyle()).help("Repeat this video")
-      Button {
-        showEpisodeBrowser = true
-      } label: {
-        Image(systemName: "list.bullet.rectangle")
+      if showsEpisodeControls {
+        Button {
+          showEpisodeBrowser = true
+        } label: {
+          Image(systemName: "list.bullet.rectangle")
+        }
+        .buttonStyle(PlayerGlyphStyle()).help("Episodes")
+        .disabled(player.sequenceLoading || player.sequence == nil)
+        .accessibilityLabel("Episodes")
+        .accessibilityIdentifier("player.episodes")
       }
-      .buttonStyle(PlayerGlyphStyle()).help("Episodes / Files")
-      .disabled(player.sequenceLoading || player.sequence == nil)
-      .accessibilityLabel("Episodes / Files")
       Button {
         showPreferences = true
       } label: {
@@ -338,6 +349,9 @@ struct EmbeddedPlayerView: View {
     }
     .lineLimit(1)
   }
+
+  /// Previous, Next and the episode list appear only while a series episode is playing.
+  private var showsEpisodeControls: Bool { player.isPlayingEpisode }
 
   private var playbackOptions: some View {
     PlayerOptionsMenus(player: player, compact: true).fixedSize()
