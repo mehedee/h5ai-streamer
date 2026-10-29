@@ -48,7 +48,7 @@ actor LibraryIndex {
   private let connection: IndexConnection
   nonisolated let url: URL
   private var hasTrigram = false
-  private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+  static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
   init(url: URL, searchable: Bool = true) throws {
     self.url = url
@@ -135,6 +135,9 @@ actor LibraryIndex {
         PRIMARY KEY(category,url_prefix,relative_path,is_directory));
       CREATE TABLE IF NOT EXISTS index_state(id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL);
       INSERT OR IGNORE INTO index_state VALUES(1,0);
+      CREATE TABLE IF NOT EXISTS source_health(category TEXT PRIMARY KEY, last_success REAL,
+        last_problem REAL, last_error TEXT, latency REAL, failures INTEGER NOT NULL DEFAULT 0,
+        next_retry REAL);
       PRAGMA user_version=4;
       COMMIT;
       """
@@ -233,6 +236,7 @@ actor LibraryIndex {
         try execute("DELETE FROM videos WHERE category=?", [id])
         try execute("DELETE FROM source_scans WHERE category=?", [id])
         try execute("DELETE FROM folders WHERE category=?", [id])
+        try execute("DELETE FROM source_health WHERE category=?", [id])
       }
       for root in roots {
         try execute(
@@ -418,7 +422,7 @@ actor LibraryIndex {
 
   func revision() throws -> Int { try count("SELECT revision FROM index_state WHERE id=1") }
 
-  private func count(_ sql: String, _ values: [String] = []) throws -> Int {
+  func count(_ sql: String, _ values: [String] = []) throws -> Int {
     let statement = try prepare(sql)
     defer { sqlite3_finalize(statement) }
     for (offset, value) in values.enumerated() { bind(value, to: statement, at: Int32(offset + 1)) }
@@ -979,7 +983,7 @@ actor LibraryIndex {
     }
   }
 
-  private func transaction(_ body: () throws -> Void) throws {
+  func transaction(_ body: () throws -> Void) throws {
     try execute("BEGIN IMMEDIATE")
     do {
       try body()
@@ -990,34 +994,34 @@ actor LibraryIndex {
       throw error
     }
   }
-  private func prepare(_ sql: String) throws -> OpaquePointer {
+  func prepare(_ sql: String) throws -> OpaquePointer {
     var statement: OpaquePointer?
     guard sqlite3_prepare_v2(connection.handle, sql, -1, &statement, nil) == SQLITE_OK,
       let statement
     else { throw databaseError() }
     return statement
   }
-  private func execute(_ sql: String, _ values: [String] = []) throws {
+  func execute(_ sql: String, _ values: [String] = []) throws {
     let statement = try prepare(sql)
     defer { sqlite3_finalize(statement) }
     for (offset, value) in values.enumerated() { bind(value, to: statement, at: Int32(offset + 1)) }
     try stepDone(statement)
   }
-  private func bind(_ value: String?, to statement: OpaquePointer, at index: Int32) {
+  func bind(_ value: String?, to statement: OpaquePointer, at index: Int32) {
     if let value {
       value.withCString { _ = sqlite3_bind_text(statement, index, $0, -1, Self.transient) }
     } else {
       sqlite3_bind_null(statement, index)
     }
   }
-  private func stepDone(_ statement: OpaquePointer) throws {
+  func stepDone(_ statement: OpaquePointer) throws {
     guard sqlite3_step(statement) == SQLITE_DONE else { throw databaseError() }
   }
-  private func string(_ statement: OpaquePointer, _ column: Int32) -> String {
+  func string(_ statement: OpaquePointer, _ column: Int32) -> String {
     guard let value = sqlite3_column_text(statement, column) else { return "" }
     return String(cString: value)
   }
-  private func databaseError() -> LibraryIndexError {
+  func databaseError() -> LibraryIndexError {
     .database(String(cString: sqlite3_errmsg(connection.handle)))
   }
 }
@@ -1029,15 +1033,23 @@ actor LibraryIndexer {
   private(set) var summary = IndexRefreshSummary()
   private var pendingValidRecords: [GlobalSearchResult] = []
   private var fileFailures: [UUID: GlobalSearchFailure] = [:]
-  init(directoryService: DirectoryService, maximumConcurrentFolders: Int = 2) {
+  init(
+    directoryService: DirectoryService, maximumConcurrentFolders: Int = 2,
+    retryPolicy: IndexRetryPolicy = IndexRetryPolicy(),
+    retryDelay: Duration = .milliseconds(500)
+  ) {
     self.directoryService = directoryService
     self.scanner = nil
     self.maximumConcurrentFolders = maximumConcurrentFolders
+    self.retryPolicy = retryPolicy
+    self.retryDelay = retryDelay
   }
   init(scanner: GlobalSearchService) {
     self.scanner = scanner
     directoryService = nil
     maximumConcurrentFolders = 2
+    retryPolicy = IndexRetryPolicy()
+    retryDelay = .milliseconds(500)
   }
 
   func refresh(
@@ -1046,11 +1058,15 @@ actor LibraryIndexer {
     full: Bool = false,
     concurrencyLimit: (@Sendable () async -> Int)? = nil,
     onCommit: @escaping @Sendable () async -> Void = {},
+    sourceUpdate: (@Sendable (SourceRunUpdate) async -> Void)? = nil,
     update: @escaping @Sendable (GlobalSearchSnapshot) async -> Void
   ) async throws -> GlobalSearchSnapshot {
     summary = IndexRefreshSummary()
     pendingValidRecords = []
     fileFailures = [:]
+    sourceProgress = [:]
+    sourceFailures = [:]
+    activeSources = 0
     let selected = IndexScope.compact(scopes ?? roots.map { IndexScope(root: $0, folder: $0.url) })
     if selected.isEmpty {
       return GlobalSearchSnapshot(results: [], progress: .init(), failures: [])
@@ -1062,34 +1078,33 @@ actor LibraryIndexer {
     let loader = directoryService.map {
       IndexListingLoader(
         service: $0, active: index, staging: staged, roots: roots, policies: policies,
-        selected: selected, automatic: automatic, full: full)
+        selected: selected, automatic: automatic, full: full, retryDelay: retryDelay)
     }
-    let service: GlobalSearchService
+    let selectedIDs = Set(selected.map { $0.root.id })
+    let scanned: GlobalSearchSnapshot
     if let scanner {
-      service = scanner
+      scanned = try await scanner.search(
+        query: "", roots: roots.filter { selectedIDs.contains($0.id) }, matchAllVideos: true,
+        scopes: selected,
+        batchSink: { [weak self] batch in
+          guard let self else { throw CancellationError() }
+          try await self.writeScanBatch(
+            batch, staged: staged, index: index, roots: roots, generation: generation,
+            onCommit: onCommit)
+        },
+        batchSize: 500,
+        failedFolderSink: { root, url, relativePath in
+          try await staged.recordFailedFolder(root: root, url: url, relativePath: relativePath)
+        },
+        concurrencyLimit: concurrencyLimit, update: update)
     } else if let loader {
-      service = GlobalSearchService(maximumConcurrentFolders: maximumConcurrentFolders) {
-        url, boundary in
-        try await loader.listing(at: url, boundary: boundary)
-      }
+      scanned = try await crawlSources(
+        selected: selected, roots: roots, loader: loader, staged: staged, index: index,
+        generation: generation, concurrencyLimit: concurrencyLimit, onCommit: onCommit,
+        sourceUpdate: sourceUpdate, update: update)
     } else {
       throw LibraryIndexError.database("No directory loader available")
     }
-    let selectedIDs = Set(selected.map { $0.root.id })
-    let scanned = try await service.search(
-      query: "", roots: roots.filter { selectedIDs.contains($0.id) }, matchAllVideos: true,
-      scopes: selected,
-      batchSink: { [weak self] batch in
-        guard let self else { throw CancellationError() }
-        try await self.writeScanBatch(
-          batch, staged: staged, index: index, roots: roots, generation: generation,
-          onCommit: onCommit)
-      },
-      batchSize: 500,
-      failedFolderSink: { root, url, relativePath in
-        try await staged.recordFailedFolder(root: root, url: url, relativePath: relativePath)
-      },
-      concurrencyLimit: concurrencyLimit, update: update)
     try Task.checkCancellation()
     try await flushPendingRecords(index: index, generation: generation, onCommit: onCommit)
     try Task.checkCancellation()
@@ -1110,6 +1125,162 @@ actor LibraryIndexer {
       summary.unchanged = scanned.unchanged
     }
     return GlobalSearchSnapshot(results: scanned.results, progress: progress, failures: failures)
+  }
+
+  // MARK: - Per-source crawl
+
+  private var sourceProgress: [UUID: GlobalSearchProgress] = [:]
+  private var sourceFailures: [UUID: GlobalSearchFailure] = [:]
+  private var activeSources = 0
+  private let retryPolicy: IndexRetryPolicy
+  private let retryDelay: Duration
+
+  /// Crawls each source in its own pipeline. Two sources run side by side at most (one in low
+  /// impact mode), and one source that is slow, down or failing never holds the others back.
+  private func crawlSources(
+    selected: [IndexScope], roots: [GlobalSearchRoot], loader: IndexListingLoader,
+    staged: LibraryIndex, index: LibraryIndex, generation: UUID,
+    concurrencyLimit: (@Sendable () async -> Int)?,
+    onCommit: @escaping @Sendable () async -> Void,
+    sourceUpdate: (@Sendable (SourceRunUpdate) async -> Void)?,
+    update: @escaping @Sendable (GlobalSearchSnapshot) async -> Void
+  ) async throws -> GlobalSearchSnapshot {
+    var order: [GlobalSearchRoot] = []
+    var scopesByRoot: [UUID: [IndexScope]] = [:]
+    for scope in selected {
+      if scopesByRoot[scope.root.id] == nil { order.append(scope.root) }
+      scopesByRoot[scope.root.id, default: []].append(scope)
+    }
+    let health = (try? await index.sourceHealth()) ?? [:]
+    for root in order {
+      sourceProgress[root.id] = GlobalSearchProgress(sourcesTotal: 1)
+      await sourceUpdate?(SourceRunUpdate(sourceID: root.id, state: .queued))
+    }
+    await update(aggregateSnapshot(total: order.count))
+    let base = await concurrencyLimit?() ?? maximumConcurrentFolders
+    let parallel = base >= 2 && order.count > 1 ? 2 : 1
+    let perFolderBase = max(1, min(base, maximumConcurrentFolders))
+    let total = order.count
+    try await withThrowingTaskGroup(of: Void.self) { group in
+      var next = 0
+      func launch() {
+        guard next < order.count else { return }
+        let root = order[next]
+        next += 1
+        let scopes = scopesByRoot[root.id] ?? []
+        let previous = health[root.id]
+        group.addTask { [self] in
+          try await crawlOne(
+            root: root, scopes: scopes, previousHealth: previous, loader: loader, staged: staged,
+            index: index, roots: roots, generation: generation, perFolderBase: perFolderBase,
+            concurrencyLimit: concurrencyLimit, onCommit: onCommit, sourceUpdate: sourceUpdate,
+            total: total, update: update)
+        }
+      }
+      for _ in 0..<parallel { launch() }
+      while try await group.next() != nil { launch() }
+    }
+    return aggregateSnapshot(total: total)
+  }
+
+  private func crawlOne(
+    root: GlobalSearchRoot, scopes: [IndexScope], previousHealth: SourceHealthRecord?,
+    loader: IndexListingLoader, staged: LibraryIndex, index: LibraryIndex,
+    roots: [GlobalSearchRoot], generation: UUID, perFolderBase: Int,
+    concurrencyLimit: (@Sendable () async -> Int)?,
+    onCommit: @escaping @Sendable () async -> Void,
+    sourceUpdate: (@Sendable (SourceRunUpdate) async -> Void)?,
+    total: Int, update: @escaping @Sendable (GlobalSearchSnapshot) async -> Void
+  ) async throws {
+    activeSources += 1
+    defer { activeSources -= 1 }
+    await sourceUpdate?(SourceRunUpdate(sourceID: root.id, state: .indexing))
+    let service = GlobalSearchService(maximumConcurrentFolders: maximumConcurrentFolders) {
+      url, boundary in
+      try await loader.listing(at: url, boundary: boundary)
+    }
+    let rootID = root.id
+    let result = try await service.search(
+      query: "", roots: [root], matchAllVideos: true, scopes: scopes,
+      batchSink: { [weak self] batch in
+        guard let self else { throw CancellationError() }
+        try await self.writeScanBatch(
+          batch, staged: staged, index: index, roots: roots, generation: generation,
+          onCommit: onCommit)
+      },
+      batchSize: 500,
+      failedFolderSink: { root, url, relativePath in
+        try await staged.recordFailedFolder(root: root, url: url, relativePath: relativePath)
+      },
+      concurrencyLimit: { [weak self] in
+        // Sources share the folder budget: a lone source gets all of it.
+        let wanted = await concurrencyLimit?() ?? perFolderBase
+        let active = await self?.activeSources ?? 1
+        return max(1, min(wanted, perFolderBase) / max(1, active))
+      },
+      update: { [weak self] snapshot in
+        guard let self else { return }
+        await self.noteProgress(
+          rootID, snapshot, total: total, update: update, sourceUpdate: sourceUpdate)
+      })
+    try Task.checkCancellation()
+    let failure = result.failures.first
+    sourceProgress[rootID] = result.progress
+    if let failure { sourceFailures[rootID] = failure }
+    let latency = await loader.latency(for: rootID)
+    var record = previousHealth ?? SourceHealthRecord()
+    record.latency = latency ?? record.latency
+    let now = Date.now
+    let state: SourceIndexState
+    if let failure {
+      state = .failed
+      record.lastProblem = now
+      record.lastError = failure.summary
+      record.consecutiveFailures += 1
+      record.nextRetry = now.addingTimeInterval(
+        retryPolicy.delay(afterFailures: record.consecutiveFailures))
+    } else {
+      state = .ok
+      record.lastSuccess = now
+      record.consecutiveFailures = 0
+      record.nextRetry = nil
+      record.lastError = nil
+    }
+    try? await index.saveSourceHealth(record, source: rootID)
+    await sourceUpdate?(
+      SourceRunUpdate(
+        sourceID: rootID, state: state, videosFound: result.progress.matchesFound,
+        foldersVisited: result.progress.foldersVisited, error: failure?.summary,
+        latency: latency, health: record))
+    await update(aggregateSnapshot(total: total))
+  }
+
+  private func noteProgress(
+    _ source: UUID, _ snapshot: GlobalSearchSnapshot, total: Int,
+    update: @Sendable (GlobalSearchSnapshot) async -> Void,
+    sourceUpdate: (@Sendable (SourceRunUpdate) async -> Void)?
+  ) async {
+    sourceProgress[source] = snapshot.progress
+    if let failure = snapshot.failures.first { sourceFailures[source] = failure }
+    await sourceUpdate?(
+      SourceRunUpdate(
+        sourceID: source, state: .indexing, videosFound: snapshot.progress.matchesFound,
+        foldersVisited: snapshot.progress.foldersVisited))
+    await update(aggregateSnapshot(total: total))
+  }
+
+  private func aggregateSnapshot(total: Int) -> GlobalSearchSnapshot {
+    var progress = GlobalSearchProgress(sourcesTotal: total)
+    for value in sourceProgress.values {
+      progress.sourcesCompleted += value.sourcesCompleted
+      progress.foldersVisited += value.foldersVisited
+      progress.matchesFound += value.matchesFound
+    }
+    progress.failedSources = sourceFailures.count
+    let failures = sourceFailures.values.sorted {
+      $0.categoryName.localizedStandardCompare($1.categoryName) == .orderedAscending
+    }
+    return GlobalSearchSnapshot(results: [], progress: progress, failures: failures)
   }
 
   private func writeScanBatch(

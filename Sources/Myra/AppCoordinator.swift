@@ -285,7 +285,8 @@ final class AppCoordinator: ObservableObject {
     }
   }
 
-  func refreshLibraryIndex() { library.refresh(roots: searchRoots, manual: true, onlyIfDue: true) }
+  /// An explicit refresh checks the sources now; scheduled refresh remains available separately.
+  func refreshLibraryIndex() { library.refresh(roots: searchRoots, manual: true) }
 
   func exportEntertainmentData() throws -> Data {
     try entertainment.exportArchive(
