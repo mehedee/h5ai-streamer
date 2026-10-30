@@ -75,6 +75,10 @@ struct MediaCard: View {
   var watched = false
   /// Playback progress from 0 to 1, drawn along the bottom of the poster.
   var progress: Double?
+  /// Whether the title is on the Watchlist. With `toggleSaved`, a bookmark shows at the bottom
+  /// right of the poster on hover, and stays filled once saved.
+  var isSaved = false
+  var toggleSaved: (() -> Void)?
 
   @State private var isHovering = false
   @Environment(\.myraAccent) private var accent
@@ -131,6 +135,12 @@ struct MediaCard: View {
           ProgressBarView(fraction: progress, track: .white.opacity(0.3), tint: .white)
             .padding(.horizontal, 10)
             .padding(.bottom, 8)
+        }
+      }
+      .overlay(alignment: .bottomTrailing) {
+        if let toggleSaved {
+          WatchlistBookmarkButton(isSaved: isSaved, isCardHovered: isHovering, toggle: toggleSaved)
+            .padding(8)
         }
       }
       .background {
@@ -458,7 +468,8 @@ struct SearchField: View {
     .font(.system(size: 13))
     .padding(.horizontal, 12)
     .padding(.vertical, 6)
-    .frame(width: 260)
+    // 260 pt when there is room; it gives way to the page actions and the indexing indicator.
+    .frame(minWidth: 150, idealWidth: 260, maxWidth: 260)
     .background {
       Capsule().fill(.ultraThinMaterial)
       Capsule().fill(MyraColor.glass)

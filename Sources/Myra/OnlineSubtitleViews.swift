@@ -70,7 +70,9 @@ final class OnlineSubtitleSearchModel: ObservableObject, Identifiable {
     isDownloading = false
     task = Task { [weak self] in
       do {
-        let credentials = try SubtitleCredentialStore.read()
+        let credentials = try await Task.detached(priority: .userInitiated) {
+          try SubtitleCredentialStore.read()
+        }.value
         guard let self else { return }
         var response = try await self.service.search(
           identity, language: language, page: nextPage, credentials: credentials)
@@ -113,7 +115,9 @@ final class OnlineSubtitleSearchModel: ObservableObject, Identifiable {
     message = nil
     task = Task { [weak self] in
       do {
-        let credentials = try SubtitleCredentialStore.read()
+        let credentials = try await Task.detached(priority: .userInitiated) {
+          try SubtitleCredentialStore.read()
+        }.value
         let cache = try SubtitleCache()
         guard let self else { return }
         let download = try await self.service.download(
@@ -404,7 +408,11 @@ struct SubtitleSettingsSection: View {
       if let status { SettingsInlineMessage(text: status) }
     }
     .task {
-      do { credentials = try SubtitleCredentialStore.read() } catch {
+      do {
+        credentials = try await Task.detached(priority: .userInitiated) {
+          try SubtitleCredentialStore.read()
+        }.value
+      } catch {
         status = error.localizedDescription
       }
     }

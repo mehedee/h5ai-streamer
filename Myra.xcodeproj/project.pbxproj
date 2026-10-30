@@ -16,6 +16,13 @@
 		561C56F02FA361F79D204FBD /* FixtureDirectoryServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 876E3FFF9B740675DAE2BEC6 /* FixtureDirectoryServer.swift */; };
 		11AADEC76751E934ABA23083 /* LibraryFixtureBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CF09AADF239E94CA339E1A7 /* LibraryFixtureBuilder.swift */; };
 		BF55BCE23ADC10471182AD0A /* PerformanceMarks.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB32EF333B08F6AB93C4CBCD /* PerformanceMarks.swift */; };
+		AE26FD73EA98558141456E31 /* TitleGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD26FD73EA98558141456E31 /* TitleGrid.swift */; };
+		AE3FC413AB66547A187BA126 /* Translucency.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD3FC413AB66547A187BA126 /* Translucency.swift */; };
+		AEB5980232C6470F7A7F88C4 /* IndexingIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADB5980232C6470F7A7F88C4 /* IndexingIndicator.swift */; };
+		AEB2F1D36220CC093FCC3D4E /* FilterBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADB2F1D36220CC093FCC3D4E /* FilterBar.swift */; };
+		AED1D52AF2F445C7F1F6585B /* LibraryFilters.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADD1D52AF2F445C7F1F6585B /* LibraryFilters.swift */; };
+		AE1206C35597796D06178D71 /* WatchlistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD1206C35597796D06178D71 /* WatchlistStore.swift */; };
+		AEE90ABBB7327E703BB4B8C5 /* EngineSeams.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADE90ABBB7327E703BB4B8C5 /* EngineSeams.swift */; };
 		FB20000000000000000000001 /* TorrentController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB10000000000000000000001; };
 		FB20000000000000000000002 /* TorrentEngineClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB10000000000000000000002; };
 		FB20000000000000000000003 /* TorrentDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB10000000000000000000003; };
@@ -23,6 +30,14 @@
 		FA20000000000000000000001 /* TorrentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA10000000000000000000001; };
 		FA20000000000000000000002 /* TorrentDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA10000000000000000000002; };
 		FA20000000000000000000003 /* TorrentCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA10000000000000000000003; };
+		7C2000000000000000000001 /* TorrentSearchModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1000000000000000000001 /* TorrentSearchModels.swift */; };
+		7C2000000000000000000002 /* TorznabFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1000000000000000000002 /* TorznabFeed.swift */; };
+		7C2000000000000000000003 /* TorrentSearchEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1000000000000000000003 /* TorrentSearchEngine.swift */; };
+		7C2000000000000000000004 /* TorrentIndexerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1000000000000000000004 /* TorrentIndexerStore.swift */; };
+		7C2000000000000000000005 /* TorrentSearchModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1000000000000000000005 /* TorrentSearchModel.swift */; };
+		7C2000000000000000000006 /* TorrentSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1000000000000000000006 /* TorrentSearchView.swift */; };
+		7C2000000000000000000007 /* TorrentIndexerViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1000000000000000000007 /* TorrentIndexerViews.swift */; };
+		7C2000000000000000000099 /* TorrentSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1000000000000000000099 /* TorrentSearchTests.swift */; };
 		FA20000000000000000000004 /* TorrentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA10000000000000000000004; };
         F52000000000000000000001 = {isa = PBXBuildFile; fileRef = F51000000000000000000001; };
         F52000000000000000000002 = {isa = PBXBuildFile; productRef = F53000000000000000000002; };
@@ -130,14 +145,21 @@
 /* Begin PBXFileReference section */
 		617B515607CB6966B4BBD0DF /* HomeCatalogueEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeCatalogueEngine.swift; sourceTree = "<group>"; };
 		39A0147278A9FB5973B2A364 /* EntertainmentCatalogue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntertainmentCatalogue.swift; sourceTree = "<group>"; };
-		34871CFF4F8FA26A1B14DBCE /* LibraryIndex+Catalogue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryIndex+Catalogue.swift; sourceTree = "<group>"; };
+		34871CFF4F8FA26A1B14DBCE /* LibraryIndex+Catalogue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LibraryIndex+Catalogue.swift"; sourceTree = "<group>"; };
 		29BBEBDA63040C7B11EF3097 /* IndexingStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexingStateTests.swift; sourceTree = "<group>"; };
-		CADD0DFB58DDD7BCEE556EF1 /* LibraryIndex+Health.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryIndex+Health.swift; sourceTree = "<group>"; };
+		CADD0DFB58DDD7BCEE556EF1 /* LibraryIndex+Health.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LibraryIndex+Health.swift"; sourceTree = "<group>"; };
 		D8CDEC114A2D7D20E4538412 /* IndexingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexingState.swift; sourceTree = "<group>"; };
 		F263B34C9E79213A2FE9C673 /* CatalogueBenchmarkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogueBenchmarkTests.swift; sourceTree = "<group>"; };
 		876E3FFF9B740675DAE2BEC6 /* FixtureDirectoryServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FixtureDirectoryServer.swift; sourceTree = "<group>"; };
 		2CF09AADF239E94CA339E1A7 /* LibraryFixtureBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryFixtureBuilder.swift; sourceTree = "<group>"; };
 		AB32EF333B08F6AB93C4CBCD /* PerformanceMarks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceMarks.swift; sourceTree = "<group>"; };
+		AD26FD73EA98558141456E31 /* TitleGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell/TitleGrid.swift; sourceTree = "<group>"; };
+		AD3FC413AB66547A187BA126 /* Translucency.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell/Translucency.swift; sourceTree = "<group>"; };
+		ADB5980232C6470F7A7F88C4 /* IndexingIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell/IndexingIndicator.swift; sourceTree = "<group>"; };
+		ADB2F1D36220CC093FCC3D4E /* FilterBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell/FilterBar.swift; sourceTree = "<group>"; };
+		ADD1D52AF2F445C7F1F6585B /* LibraryFilters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell/LibraryFilters.swift; sourceTree = "<group>"; };
+		AD1206C35597796D06178D71 /* WatchlistStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell/WatchlistStore.swift; sourceTree = "<group>"; };
+		ADE90ABBB7327E703BB4B8C5 /* EngineSeams.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell/EngineSeams.swift; sourceTree = "<group>"; };
 		FB10000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentController.swift; sourceTree = "<group>"; };
 		FB10000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentEngineClient.swift; sourceTree = "<group>"; };
 		FB10000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentDiscovery.swift; sourceTree = "<group>"; };
@@ -145,6 +167,14 @@
 		FA10000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentModels.swift; sourceTree = "<group>"; };
 		FA10000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentDatabase.swift; sourceTree = "<group>"; };
 		FA10000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentCache.swift; sourceTree = "<group>"; };
+		7C1000000000000000000001 /* TorrentSearchModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentSearch/TorrentSearchModels.swift; sourceTree = "<group>"; };
+		7C1000000000000000000002 /* TorznabFeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentSearch/TorznabFeed.swift; sourceTree = "<group>"; };
+		7C1000000000000000000003 /* TorrentSearchEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentSearch/TorrentSearchEngine.swift; sourceTree = "<group>"; };
+		7C1000000000000000000004 /* TorrentIndexerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentSearch/TorrentIndexerStore.swift; sourceTree = "<group>"; };
+		7C1000000000000000000005 /* TorrentSearchModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentSearch/TorrentSearchModel.swift; sourceTree = "<group>"; };
+		7C1000000000000000000006 /* TorrentSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentSearch/TorrentSearchView.swift; sourceTree = "<group>"; };
+		7C1000000000000000000007 /* TorrentIndexerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentSearch/TorrentIndexerViews.swift; sourceTree = "<group>"; };
+		7C1000000000000000000099 /* TorrentSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentSearchTests.swift; sourceTree = "<group>"; };
 		FA10000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentTests.swift; sourceTree = "<group>"; };
         F51000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdater.swift; sourceTree = "<group>"; };
 		B00100000000000000000019 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSequence.swift; sourceTree = "<group>"; };
@@ -288,6 +318,13 @@
 				CADD0DFB58DDD7BCEE556EF1 /* LibraryIndex+Health.swift */,
 				D8CDEC114A2D7D20E4538412 /* IndexingState.swift */,
 				AB32EF333B08F6AB93C4CBCD /* PerformanceMarks.swift */,
+				AD26FD73EA98558141456E31 /* TitleGrid.swift */,
+				AD3FC413AB66547A187BA126 /* Translucency.swift */,
+				ADB5980232C6470F7A7F88C4 /* IndexingIndicator.swift */,
+				ADB2F1D36220CC093FCC3D4E /* FilterBar.swift */,
+				ADD1D52AF2F445C7F1F6585B /* LibraryFilters.swift */,
+				AD1206C35597796D06178D71 /* WatchlistStore.swift */,
+				ADE90ABBB7327E703BB4B8C5 /* EngineSeams.swift */,
 				0D730A0F5A0E3071F63F90C5 /* AIPanelCards.swift */,
 				467B383BAE96DC0E3070099E /* PlayerOverlay.swift */,
 				36D7D6DF67AEF8514FBA1AF9 /* SettingsRows.swift */,
@@ -314,6 +351,13 @@
 				DDCE6F9B1D3B11440C2EBF4E /* MyraCommands.swift */,
 				1FDC256E3C373839A82D19FB /* RootView.swift */,
 				611770139B2493A3DA7527D2 /* TorrentLinks.swift */,
+				7C1000000000000000000001 /* TorrentSearchModels.swift */,
+				7C1000000000000000000002 /* TorznabFeed.swift */,
+				7C1000000000000000000003 /* TorrentSearchEngine.swift */,
+				7C1000000000000000000004 /* TorrentIndexerStore.swift */,
+				7C1000000000000000000005 /* TorrentSearchModel.swift */,
+				7C1000000000000000000006 /* TorrentSearchView.swift */,
+				7C1000000000000000000007 /* TorrentIndexerViews.swift */,
 				FB10000000000000000000001,
 				FB10000000000000000000002,
 				FB10000000000000000000003,
@@ -380,6 +424,7 @@
 				876E3FFF9B740675DAE2BEC6 /* FixtureDirectoryServer.swift */,
 				2CF09AADF239E94CA339E1A7 /* LibraryFixtureBuilder.swift */,
 				FA10000000000000000000004,
+				7C1000000000000000000099 /* TorrentSearchTests.swift */,
 				B00200000000000000000001,
 				F41000000000000000000012,
 				F41000000000000000000011,
@@ -494,6 +539,13 @@ F44000000000000000000001, F44000000000000000000002,
 				499CC029A9E893ECA531BEB3 /* LibraryIndex+Health.swift in Sources */,
 				EEF10B71F3EED7817753F167 /* IndexingState.swift in Sources */,
 				BF55BCE23ADC10471182AD0A /* PerformanceMarks.swift in Sources */,
+				AE26FD73EA98558141456E31 /* TitleGrid.swift in Sources */,
+				AE3FC413AB66547A187BA126 /* Translucency.swift in Sources */,
+				AEB5980232C6470F7A7F88C4 /* IndexingIndicator.swift in Sources */,
+				AEB2F1D36220CC093FCC3D4E /* FilterBar.swift in Sources */,
+				AED1D52AF2F445C7F1F6585B /* LibraryFilters.swift in Sources */,
+				AE1206C35597796D06178D71 /* WatchlistStore.swift in Sources */,
+				AEE90ABBB7327E703BB4B8C5 /* EngineSeams.swift in Sources */,
 				F6230DC7251467450574210B /* AIPanelCards.swift in Sources */,
 				90F2D00508E831176340587C /* PlayerOverlay.swift in Sources */,
 				B872EEDD9BD583A0D4854D42 /* SettingsRows.swift in Sources */,
@@ -520,6 +572,13 @@ F44000000000000000000001, F44000000000000000000002,
 				F3BB6CA427F836C0B6A334EA /* MyraCommands.swift in Sources */,
 				653192EF4F58F98E939617A9 /* RootView.swift in Sources */,
 				1A7F869B20EBFC80216D4F03 /* TorrentLinks.swift in Sources */,
+				7C2000000000000000000001 /* TorrentSearchModels.swift in Sources */,
+				7C2000000000000000000002 /* TorznabFeed.swift in Sources */,
+				7C2000000000000000000003 /* TorrentSearchEngine.swift in Sources */,
+				7C2000000000000000000004 /* TorrentIndexerStore.swift in Sources */,
+				7C2000000000000000000005 /* TorrentSearchModel.swift in Sources */,
+				7C2000000000000000000006 /* TorrentSearchView.swift in Sources */,
+				7C2000000000000000000007 /* TorrentIndexerViews.swift in Sources */,
 				FB20000000000000000000001,
 				FB20000000000000000000002,
 				FB20000000000000000000003,
@@ -579,6 +638,7 @@ F44000000000000000000001, F44000000000000000000002,
 				561C56F02FA361F79D204FBD /* FixtureDirectoryServer.swift in Sources */,
 				11AADEC76751E934ABA23083 /* LibraryFixtureBuilder.swift in Sources */,
 				FA20000000000000000000004,
+				7C2000000000000000000099 /* TorrentSearchTests.swift in Sources */,
 				F42000000000000000000007,
 				F42000000000000000000008,
 				F42000000000000000000012,

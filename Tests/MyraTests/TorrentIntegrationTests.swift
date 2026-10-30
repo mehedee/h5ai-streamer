@@ -62,7 +62,10 @@ final class TorrentIntegrationTests: XCTestCase {
       <item><title>Not torrent</title><enclosure url="file:///etc/passwd" type="text/plain"/></item>
       </channel></rss>
       """
-    let items = try TorrentDiscoveryService.parseTorznab(Data(xml.utf8), source: source)
+    let indexer = TorrentIndexer(
+      id: source.id, name: source.name, kind: .torznab, url: source.endpoint, enabled: true,
+      isBuiltIn: false)
+    let items = try TorznabParser.parse(Data(xml.utf8), indexer: indexer).results
     XCTAssertEqual(items.count, 2)
     XCTAssertEqual(items.first?.title, "Episode 1 & more")
     XCTAssertEqual(items.first?.seeders, 5)
@@ -70,13 +73,13 @@ final class TorrentIntegrationTests: XCTestCase {
     XCTAssertNotNil(items.first?.magnet)
     XCTAssertNotNil(items.last?.torrentURL)
     XCTAssertEqual(items.last?.sourceURL, source.endpoint)
-    XCTAssertFalse(items.last!.sourceURL.absoluteString.contains("fixture"))
+    XCTAssertFalse(items.last!.sourceURL!.absoluteString.contains("fixture"))
     XCTAssertThrowsError(
-      try TorrentDiscoveryService.parseTorznab(
+      try TorznabParser.parse(
         Data("<!DOCTYPE rss [<!ENTITY x SYSTEM 'file:///etc/passwd'>]><rss>&x;</rss>".utf8),
-        source: source))
+        indexer: indexer))
     XCTAssertThrowsError(
-      try TorrentDiscoveryService.parseTorznab(Data("<error code='100'/>".utf8), source: source))
+      try TorznabParser.parse(Data("<error code='100'/>".utf8), indexer: indexer))
   }
 
   func testVideoReservationDoesNotDoubleCountSelectedFile() async throws {
@@ -125,24 +128,6 @@ final class TorrentIntegrationTests: XCTestCase {
     XCTAssertNotNil(controller.error)
     XCTAssertEqual(controller.jobs.count, 1)
     controller.shutdown()
-  }
-
-  @MainActor
-  func testOpenMoviesFilterAndCancelRemainEphemeral() {
-    let model = TorrentDiscoveryModel()
-    model.query = "sInTeL"
-    model.search()
-    XCTAssertEqual(model.results.map(\.title), ["Sintel"])
-    model.query = ""
-    model.search()
-    XCTAssertEqual(model.results.count, 4)
-    model.selectedProvider = "archive"
-    model.query = "ab"
-    model.search()
-    XCTAssertNotNil(model.error)
-    XCTAssertFalse(model.searching)
-    model.cancel()
-    XCTAssertFalse(model.searching)
   }
 
   @MainActor

@@ -82,7 +82,8 @@ final class ShellChromeTests: XCTestCase {
   }
 
   func testSidebarSectionsKeepTheirPreviewTitles() {
-    XCTAssertEqual(AppSection.allCases.map(\.title), ["Home", "Sources", "Downloads", "Transfers"])
+    XCTAssertEqual(AppSection.allCases.map(\.title), ["Home", "Watchlist", "Sources", "Downloads", "Transfers"])
+    XCTAssertEqual(AppSection.watchlist.icon, "bookmark")
     XCTAssertEqual(AppSection.sources.icon, "server.rack")
   }
 }

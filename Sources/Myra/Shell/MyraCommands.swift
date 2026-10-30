@@ -7,7 +7,9 @@ import SwiftUI
 /// same notification for page-owned actions. Items without a handler are disabled with a
 /// `.help` reason in `MyraCommandContext`-driven availability, so they never fail silently.
 enum MyraCommand: Hashable, Sendable {
-  case showHome, showSources, showDownloads, showTransfers
+  case showHome, showWatchlist, showSources, showDownloads, showTransfers
+  /// Collapses the sidebar to its icon rail, or expands it again.
+  case toggleSidebar
   case addSource, openTorrentLink, importTorrentFile, refreshLibrary, find
   case pauseAllDownloads, resumeAllDownloads, clearCompletedDownloads
   case setAppearance(AppThemeMode)
@@ -21,7 +23,7 @@ enum MyraCommand: Hashable, Sendable {
 
   static let allCommands: [MyraCommand] =
     [
-      .showHome, .showSources, .showDownloads, .showTransfers,
+      .showHome, .showWatchlist, .showSources, .showDownloads, .showTransfers, .toggleSidebar,
       .addSource, .openTorrentLink, .importTorrentFile, .refreshLibrary, .find,
       .pauseAllDownloads, .resumeAllDownloads, .clearCompletedDownloads,
       .togglePlayback, .skipBack, .skipForward, .previousEpisode, .nextEpisode,
@@ -32,6 +34,8 @@ enum MyraCommand: Hashable, Sendable {
   var identifier: String {
     switch self {
     case .showHome: "showHome"
+    case .showWatchlist: "showWatchlist"
+    case .toggleSidebar: "toggleSidebar"
     case .showSources: "showSources"
     case .showDownloads: "showDownloads"
     case .showTransfers: "showTransfers"
@@ -82,6 +86,10 @@ struct MyraCommandContext: Equatable, Sendable {
   var hasPausedDownloads = false
   var hasCompletedDownloads = false
   var currentSection: AppSection = .home
+  /// The playing item is an episode, so Previous and Next Episode apply. Movies have neither.
+  var isPlayingEpisode = false
+  var canGoPreviousEpisode = false
+  var canGoNextEpisode = false
 }
 
 extension MyraCommandContext {
@@ -93,7 +101,10 @@ extension MyraCommandContext {
       hasActiveDownloads: coordinator.batches.contains { $0.status == .active },
       hasPausedDownloads: coordinator.batches.contains { $0.status == .paused },
       hasCompletedDownloads: coordinator.batches.contains { $0.status == .completed },
-      currentSection: coordinator.currentSection)
+      currentSection: coordinator.currentSection,
+      isPlayingEpisode: player.isPlayingEpisode,
+      canGoPreviousEpisode: player.isPlayingEpisode && player.canGoPrevious,
+      canGoNextEpisode: player.isPlayingEpisode && player.canGoNext)
   }
 }
 
@@ -114,10 +125,19 @@ extension MyraCommand {
       context.currentSection == .sources
         ? .enabled : .disabled(reason: "Open Sources to add a source.")
     case .find:
-      [AppSection.home, .sources, .downloads].contains(context.currentSection)
-        ? .enabled : .disabled(reason: "Find is available on Home, Sources and Downloads.")
-    case .togglePlayback, .skipBack, .skipForward, .previousEpisode, .nextEpisode:
+      [AppSection.home, .watchlist, .sources, .downloads].contains(context.currentSection)
+        ? .enabled
+        : .disabled(reason: "Find is available on Home, Watchlist, Sources and Downloads.")
+    case .togglePlayback, .skipBack, .skipForward:
       context.isPlayingMedia ? .enabled : .disabled(reason: "Open a title to control playback.")
+    case .previousEpisode:
+      !context.isPlayingEpisode
+        ? .disabled(reason: "Previous Episode applies to series.")
+        : (context.canGoPreviousEpisode ? .enabled : .disabled(reason: "This is the first episode."))
+    case .nextEpisode:
+      !context.isPlayingEpisode
+        ? .disabled(reason: "Next Episode applies to series.")
+        : (context.canGoNextEpisode ? .enabled : .disabled(reason: "This is the last episode."))
     case .pauseAllDownloads:
       context.hasActiveDownloads ? .enabled : .disabled(reason: "No downloads are running.")
     case .resumeAllDownloads:
@@ -135,6 +155,7 @@ extension MyraCommand {
 struct MyraCommands: Commands {
   @ObservedObject var coordinator: AppCoordinator
   @ObservedObject var player: EmbeddedPlayerModel
+  @AppStorage(SidebarState.collapsedKey) private var sidebarCollapsed = false
 
   private var context: MyraCommandContext {
     MyraCommandContext(coordinator: coordinator, player: player)
@@ -166,7 +187,10 @@ struct MyraCommands: Commands {
       item(.showSources, "Sources").keyboardShortcut("2", modifiers: .command)
       item(.showDownloads, "Downloads").keyboardShortcut("3", modifiers: .command)
       item(.showTransfers, "Transfers").keyboardShortcut("4", modifiers: .command)
+      item(.showWatchlist, "Watchlist").keyboardShortcut("8", modifiers: .command)
       Divider()
+      item(.toggleSidebar, sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar")
+        .keyboardShortcut("s", modifiers: [.control, .command])
       Menu("Appearance") {
         Picker("Appearance", selection: appearanceBinding) {
           ForEach(AppThemeMode.allCases, id: \.self) { mode in
@@ -185,8 +209,8 @@ struct MyraCommands: Commands {
       item(.skipBack, "Skip Back 10 Seconds")
       item(.skipForward, "Skip Forward 10 Seconds")
       Divider()
-      item(.previousEpisode, "Previous Episode").keyboardShortcut(.leftArrow, modifiers: .command)
-      item(.nextEpisode, "Next Episode").keyboardShortcut(.rightArrow, modifiers: .command)
+      item(.previousEpisode, "Previous Episode").keyboardShortcut("[", modifiers: .command)
+      item(.nextEpisode, "Next Episode").keyboardShortcut("]", modifiers: .command)
     }
 
     CommandMenu("Downloads") {

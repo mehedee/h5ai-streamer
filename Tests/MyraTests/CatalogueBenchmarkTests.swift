@@ -137,24 +137,29 @@ final class CatalogueBenchmarkTests: XCTestCase {
     let personal = EntertainmentPersonalData()
     let shelves = try await seconds { _ = HomeCategoryBuilder.categories(for: titles) }
     report("home.shelves", format(shelves))
+    let worker = HomeProjectionWorker()
     let projectionAll = try await seconds {
-      _ = try await HomeProjectionWorker().prepare(
+      _ = try await worker.prepare(
         titles, personal: personal,
-        filter: HomeCatalogueFilter(
-          query: "", genre: "", language: "", year: "", source: "", minimumRating: 0,
-          hideWatched: false, revision: 0))
+        filter: HomeCatalogueFilter(query: "", selection: LibraryFilterSelection(), revision: 0))
     }
-    report("home.projection.unfiltered", format(projectionAll))
-    var filteredCount = 0
-    let projectionGenre = try await seconds {
-      let projection = try await HomeProjectionWorker().prepare(
+    report("home.projection.unfiltered.coldIndex", format(projectionAll))
+    let warmAll = try await seconds {
+      _ = try await worker.prepare(
         titles, personal: personal,
-        filter: HomeCatalogueFilter(
-          query: "", genre: "Action", language: "", year: "", source: "", minimumRating: 0,
-          hideWatched: false, revision: 0))
+        filter: HomeCatalogueFilter(query: "", selection: LibraryFilterSelection(), revision: 1))
+    }
+    report("home.projection.unfiltered.preparedIndex", format(warmAll))
+    var filteredCount = 0
+    var selection = LibraryFilterSelection()
+    selection.toggle("Action", in: .genre)
+    let projectionGenre = try await seconds {
+      let projection = try await worker.prepare(
+        titles, personal: personal,
+        filter: HomeCatalogueFilter(query: "", selection: selection, revision: 2))
       filteredCount = projection.filtered.count
     }
-    report("home.projection.genreAction", format(projectionGenre))
+    report("home.projection.genreAction.preparedIndex", format(projectionGenre))
     report("home.projection.genreAction.matches", "\(filteredCount)")
 
     // A complete crawl through the HTTP layer, then an unchanged re-crawl (conditional requests).

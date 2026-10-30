@@ -300,14 +300,13 @@ final class EntertainmentStore: ObservableObject {
   }
 
   static let defaultFilter = HomeCatalogueFilter(
-    query: "", genre: "", language: "", year: "", source: "", minimumRating: 0, hideWatched: false,
-    revision: 0)
+    query: "", selection: LibraryFilterSelection(), revision: 0)
 
   /// Filter option lists with counts, from the same unified list the Home shelves use. Titles
   /// without metadata are classified from their folders and file names. With a filter, each list
   /// counts what the other active filters leave visible.
   func facetOptions(filter: HomeCatalogueFilter = EntertainmentStore.defaultFilter) async
-    -> CatalogueFacets
+    -> LibraryFilterOptions
   {
     let values = catalogue
     let current = personal

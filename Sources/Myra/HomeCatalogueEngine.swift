@@ -2,25 +2,6 @@ import Foundation
 
 // MARK: - Facets
 
-/// One choice in a filter menu with the number of titles it would show.
-struct FacetOption: Hashable, Sendable, Identifiable {
-  /// The value the filter compares against (a genre name, a language code, a year...).
-  let value: String
-  /// What to show: a language code becomes its name.
-  let label: String
-  let count: Int
-  var id: String { value }
-}
-
-/// Option lists for the Genre, Language, Year, Quality and Source filters.
-struct CatalogueFacets: Equatable, Sendable {
-  var genres: [FacetOption] = []
-  var languages: [FacetOption] = []
-  var years: [FacetOption] = []
-  var qualities: [FacetOption] = []
-  var sources: [FacetOption] = []
-}
-
 /// What a title is, for filtering. Taken from TMDB metadata when present, and otherwise from the
 /// folders and file names the title lives in, so filters work on a library with no metadata at all.
 struct TitleTraits: Sendable {
@@ -136,13 +117,14 @@ enum TitleFacetDerivation {
   private static func qualities(ofFileName name: String) -> [String] {
     let lower = name.lowercased()
     var result: [String] = []
-    if lower.contains("2160p") || lower.contains("4k") || lower.contains("uhd") { result.append("4K") }
+    if lower.contains("2160p") || lower.contains("4k") || lower.contains("uhd") {
+      result.append("2160p")
+    }
     if lower.contains("1080p") { result.append("1080p") }
     if lower.contains("720p") { result.append("720p") }
     if lower.contains("480p") || lower.contains("576p") || lower.contains("dvdrip") {
       result.append("480p")
     }
-    if lower.contains("hdr") { result.append("HDR") }
     return result
   }
 
@@ -211,6 +193,15 @@ enum TitleFacetDerivation {
     return traits
   }
 
+  /// Traits for many titles, computed across the processor cores.
+  static func traits(for titles: [EntertainmentTitle]) -> [TitleTraits] {
+    let result = ParallelChunks.map(count: titles.count) { range in
+      var cache: [String: FolderFacts] = [:]
+      return range.map { traits(for: titles[$0], cache: &cache) }
+    }
+    return result.count == titles.count ? result : Array(repeating: TitleTraits(), count: titles.count)
+  }
+
   /// Display name for a filter value: language codes become names.
   static func languageLabel(_ code: String) -> String {
     Locale(identifier: "en").localizedString(forLanguageCode: code)?.capitalized ?? code
@@ -251,7 +242,7 @@ final class HomeCatalogueIndex: @unchecked Sendable {
   let traits: [TitleTraits]
   /// Automatic shelves over the whole catalogue, each at least `minimumTitleCount` strong.
   let categories: [HomeCategory]
-  let facets: CatalogueFacets
+  let options: LibraryFilterOptions
   let indexByID: [String: Int]
   let movieOrder: [Int]
   let seriesOrder: [Int]
@@ -267,11 +258,7 @@ final class HomeCatalogueIndex: @unchecked Sendable {
     signature = Signature(titles)
     stage.end()
     stage = MyraPerformance.begin("homeIndex.traits")
-    var traits = ParallelChunks.map(count: titles.count) { range in
-      var cache: [String: FolderFacts] = [:]
-      return range.map { TitleFacetDerivation.traits(for: titles[$0], cache: &cache) }
-    }
-    if traits.count != titles.count { traits = Array(repeating: TitleTraits(), count: titles.count) }
+    let traits = TitleFacetDerivation.traits(for: titles)
     self.traits = traits
     stage.end()
     stage = MyraPerformance.begin("homeIndex.classify")
@@ -309,12 +296,13 @@ final class HomeCatalogueIndex: @unchecked Sendable {
     }
     stage.end()
     stage = MyraPerformance.begin("homeIndex.facets")
-    facets = HomeCatalogueIndex.facets(traits: traits, include: nil)
+    options = HomeCatalogueIndex.options(traits: traits, include: nil)
     stage.end()
   }
 
-  /// Counts for each option over the titles in `include` (all titles when nil).
-  static func facets(traits: [TitleTraits], include: [Bool]?) -> CatalogueFacets {
+  /// Counts for each option over the titles in `include` (all titles when nil). Most titles first,
+  /// then alphabetical; years newest first; qualities from the highest resolution down.
+  static func options(traits: [TitleTraits], include: [Bool]?) -> LibraryFilterOptions {
     var genres: [String: Int] = [:]
     var languages: [String: Int] = [:]
     var years: [String: Int] = [:]
@@ -328,18 +316,21 @@ final class HomeCatalogueIndex: @unchecked Sendable {
       for value in trait.qualities { qualities[value, default: 0] += 1 }
       for value in trait.sources { sources[value, default: 0] += 1 }
     }
-    func options(_ counts: [String: Int], label: (String) -> String = { $0 }) -> [FacetOption] {
-      counts.map { FacetOption(value: $0.key, label: label($0.key), count: $0.value) }
-        .sorted { $0.count != $1.count ? $0.count > $1.count : $0.label < $1.label }
+    func list(_ counts: [String: Int]) -> [FilterOption] {
+      counts.map { FilterOption(value: $0.key, count: $0.value) }.sorted {
+        $0.count != $1.count
+          ? $0.count > $1.count : $0.value.localizedStandardCompare($1.value) == .orderedAscending
+      }
     }
-    let qualityRank = ["4K": 0, "1080p": 1, "720p": 2, "480p": 3, "HDR": 4]
-    return CatalogueFacets(
-      genres: options(genres), languages: options(languages, label: TitleFacetDerivation.languageLabel),
-      years: years.map { FacetOption(value: $0.key, label: $0.key, count: $0.value) }.sorted {
+    return LibraryFilterOptions(
+      genres: list(genres), languages: list(languages),
+      years: years.map { FilterOption(value: $0.key, count: $0.value) }.sorted {
         $0.value > $1.value
       },
-      qualities: options(qualities).sorted { (qualityRank[$0.value] ?? 9) < (qualityRank[$1.value] ?? 9) },
-      sources: options(sources))
+      qualities: LibraryFilter.resolutionOrder.compactMap { name in
+        qualities[name].map { FilterOption(value: name, count: $0) }
+      },
+      sources: list(sources))
   }
 }
 
@@ -369,71 +360,89 @@ enum ParallelChunks {
 
 extension HomeCatalogueFilter {
   var isEmpty: Bool {
-    query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && genre.isEmpty
-      && language.isEmpty && year.isEmpty && source.isEmpty && quality.isEmpty
-      && minimumRating == 0 && !hideWatched
+    query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !selection.isActive
   }
 }
 
 enum HomeFilterEngine {
-  /// Which titles pass the filter. `ignoring` leaves one dimension out, for facet counts.
+  /// Which titles pass the filter, from the prepared traits (no per-title string work). A title
+  /// passes when it satisfies every active facet; within a facet any selected value is enough.
+  /// `ignoring` leaves one facet out, for the counts shown in that facet's own menu.
   static func passes(
     index: HomeCatalogueIndex, catalogue: [EntertainmentTitle], personal: EntertainmentPersonalData,
-    filter: HomeCatalogueFilter, ignoring skipped: String? = nil
+    filter: HomeCatalogueFilter, ignoring skipped: LibraryFacet? = nil
   ) -> [Bool] {
     let query = TitleFacetDerivation.fold(filter.query.trimmingCharacters(in: .whitespacesAndNewlines))
+    let selection = filter.selection
     let traits = index.traits
     var result = [Bool](repeating: true, count: traits.count)
-    if filter.isEmpty && skipped == nil { return result }
+    if query.isEmpty && !selection.isActive { return result }
     let watched = personal.watched
     for offset in traits.indices {
       let trait = traits[offset]
-      if skipped != "query", !query.isEmpty, !trait.searchText.contains(query) {
-        result[offset] = false
-      } else if skipped != "genre", !filter.genre.isEmpty, !trait.genres.contains(filter.genre) {
-        result[offset] = false
-      } else if skipped != "language", !filter.language.isEmpty, trait.language != filter.language {
-        result[offset] = false
-      } else if skipped != "year", !filter.year.isEmpty, !trait.years.contains(filter.year) {
-        result[offset] = false
-      } else if skipped != "quality", !filter.quality.isEmpty,
-        !trait.qualities.contains(filter.quality)
-      {
-        result[offset] = false
-      } else if skipped != "source", !filter.source.isEmpty,
-        !trait.sources.contains(filter.source)
-      {
-        result[offset] = false
-      } else if filter.minimumRating > 0, trait.rating < filter.minimumRating {
-        result[offset] = false
-      } else if filter.hideWatched, watched.contains(catalogue[offset].id) {
-        result[offset] = false
+      let title = catalogue[offset]
+      var pass = true
+      if !query.isEmpty, !trait.searchText.contains(query) { pass = false }
+      if pass {
+        switch selection.kind {
+        case .all: break
+        case .movies: pass = title.kind == .movie
+        case .series: pass = title.kind == .series
+        }
       }
+      if pass, selection.hideWatched, watched.contains(title.id) { pass = false }
+      if pass, skipped != .genre, !selection.genres.isEmpty,
+        selection.genres.isDisjoint(with: trait.genres)
+      {
+        pass = false
+      }
+      if pass, skipped != .language, !selection.languages.isEmpty,
+        !selection.languages.contains(trait.language ?? "")
+      {
+        pass = false
+      }
+      if pass, skipped != .year, !selection.years.isEmpty,
+        selection.years.isDisjoint(with: trait.years)
+      {
+        pass = false
+      }
+      if pass, skipped != .quality, !selection.qualities.isEmpty,
+        selection.qualities.isDisjoint(with: trait.qualities)
+      {
+        pass = false
+      }
+      if pass, skipped != .source, !selection.sources.isEmpty,
+        selection.sources.isDisjoint(with: trait.sources)
+      {
+        pass = false
+      }
+      result[offset] = pass
     }
     return result
   }
 
-  /// Option lists with counts, each computed over the titles the other filters leave visible, so
-  /// a menu shows what choosing it would give.
+  /// Option lists with counts. With nothing selected they cover the whole catalogue; with a
+  /// selection each list counts what the other active facets leave visible, so a menu shows what
+  /// choosing a value would give.
   static func facetOptions(
     index: HomeCatalogueIndex, catalogue: [EntertainmentTitle], personal: EntertainmentPersonalData,
     filter: HomeCatalogueFilter
-  ) -> CatalogueFacets {
-    guard !filter.isEmpty, index.count == catalogue.count else { return index.facets }
-    var facets = CatalogueFacets()
-    for dimension in ["genre", "language", "year", "quality", "source"] {
+  ) -> LibraryFilterOptions {
+    guard !filter.isEmpty, index.count == catalogue.count else { return index.options }
+    var options = LibraryFilterOptions()
+    for facet in LibraryFacet.allCases {
       let visible = passes(
-        index: index, catalogue: catalogue, personal: personal, filter: filter, ignoring: dimension)
-      let counted = HomeCatalogueIndex.facets(traits: index.traits, include: visible)
-      switch dimension {
-      case "genre": facets.genres = counted.genres
-      case "language": facets.languages = counted.languages
-      case "year": facets.years = counted.years
-      case "quality": facets.qualities = counted.qualities
-      default: facets.sources = counted.sources
+        index: index, catalogue: catalogue, personal: personal, filter: filter, ignoring: facet)
+      let counted = HomeCatalogueIndex.options(traits: index.traits, include: visible)
+      switch facet {
+      case .genre: options.genres = counted.genres
+      case .language: options.languages = counted.languages
+      case .year: options.years = counted.years
+      case .quality: options.qualities = counted.qualities
+      case .source: options.sources = counted.sources
       }
     }
-    return facets
+    return options
   }
 
   static func project(
@@ -452,13 +461,8 @@ enum HomeFilterEngine {
     result.watchlist = personal.watchlist.compactMap { index.indexByID[$0] }.sorted().compactMap {
       pass[$0] ? catalogue[$0] : nil
     }
-    let facets = facetOptions(index: index, catalogue: catalogue, personal: personal, filter: filter)
-    result.facets = facets
-    result.genres = facets.genres.map(\.value).sorted()
-    result.languages = facets.languages.map(\.value).sorted()
-    result.years = facets.years.map(\.value).sorted(by: >)
-    result.qualities = facets.qualities.map(\.value)
-    result.sources = facets.sources.map(\.value).sorted()
+    // The filter bar's counts come from the whole catalogue, so a chosen value can be widened.
+    result.options = index.options
     // Shelf membership was classified once for the whole catalogue; a filter only narrows it.
     let preferences = personal.homeCategories ?? HomeCategoryPreferences()
     for arranged in preferences.arrange(index.categories) where !arranged.isHidden {
