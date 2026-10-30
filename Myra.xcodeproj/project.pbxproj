@@ -68,6 +68,12 @@
 		A00100000000000000000001 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00100000000000000000001 /* Models.swift */; };
 		A00100000000000000000002 /* DirectoryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00100000000000000000002 /* DirectoryService.swift */; };
 		A00100000000000000000003 /* DownloadPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00100000000000000000003 /* DownloadPlanner.swift */; };
+		9E2000000000000000000000 /* AutomaticDownloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E1000000000000000000000 /* AutomaticDownloads.swift */; };
+		9E2000000000000000000001 /* SystemIntegration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E1000000000000000000001 /* SystemIntegration.swift */; };
+		9E2000000000000000000002 /* MenuBarStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E1000000000000000000002 /* MenuBarStatus.swift */; };
+		9E2000000000000000000003 /* MyraIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E1000000000000000000003 /* MyraIntents.swift */; };
+		9E2000000000000000000004 /* ScheduledDownloadsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E1000000000000000000004 /* ScheduledDownloadsView.swift */; };
+		9E2000000000000000000005 /* SystemSettingsSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E1000000000000000000005 /* SystemSettingsSections.swift */; };
 		A00100000000000000000004 /* Aria2Service.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00100000000000000000004 /* Aria2Service.swift */; };
 		A00100000000000000000005 /* AppCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00100000000000000000005 /* AppCoordinator.swift */; };
 		A00100000000000000000006 /* MyraApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00100000000000000000006 /* MyraApp.swift */; };
@@ -76,6 +82,8 @@
 		A00100000000000000000009 /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = D00100000000000000000002 /* SwiftSoup */; };
 		A00200000000000000000001 /* DirectoryServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00200000000000000000001 /* DirectoryServiceTests.swift */; };
 		A00200000000000000000002 /* DownloadAndAria2Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00200000000000000000002 /* DownloadAndAria2Tests.swift */; };
+		7D4000000000000000000000 /* AutomaticDownloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D3000000000000000000000 /* AutomaticDownloadTests.swift */; };
+		7D4000000000000000000001 /* SystemIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D3000000000000000000001 /* SystemIntegrationTests.swift */; };
 		6B8976A2684B76B4B42AA9CA /* DiscoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8304AEE5B15C536B5389BCD8; };
 		17BBBF8FBE262C8492234DA2 /* DiscoverySettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C49C204ADA10F4D326F77F69; };
 		B0B696BCDA2A1CB173C92A96 /* EntertainmentDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FDE9A6EB4BD4830582D1ABC; };
@@ -212,6 +220,12 @@
 		B00100000000000000000001 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		B00100000000000000000002 /* DirectoryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectoryService.swift; sourceTree = "<group>"; };
 		B00100000000000000000003 /* DownloadPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadPlanner.swift; sourceTree = "<group>"; };
+		9E1000000000000000000000 /* AutomaticDownloads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomaticDownloads.swift; sourceTree = "<group>"; };
+		9E1000000000000000000001 /* SystemIntegration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemIntegration.swift; sourceTree = "<group>"; };
+		9E1000000000000000000002 /* MenuBarStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarStatus.swift; sourceTree = "<group>"; };
+		9E1000000000000000000003 /* MyraIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyraIntents.swift; sourceTree = "<group>"; };
+		9E1000000000000000000004 /* ScheduledDownloadsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pages/ScheduledDownloadsView.swift; sourceTree = "<group>"; };
+		9E1000000000000000000005 /* SystemSettingsSections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pages/SystemSettingsSections.swift; sourceTree = "<group>"; };
 		B00100000000000000000004 /* Aria2Service.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Aria2Service.swift; sourceTree = "<group>"; };
 		B00100000000000000000005 /* AppCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCoordinator.swift; sourceTree = "<group>"; };
 		B00100000000000000000006 /* MyraApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyraApp.swift; sourceTree = "<group>"; };
@@ -219,6 +233,8 @@
 		B00100000000000000000008 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B00200000000000000000001 /* DirectoryServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectoryServiceTests.swift; sourceTree = "<group>"; };
 		B00200000000000000000002 /* DownloadAndAria2Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadAndAria2Tests.swift; sourceTree = "<group>"; };
+		7D3000000000000000000000 /* AutomaticDownloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomaticDownloadTests.swift; sourceTree = "<group>"; };
+		7D3000000000000000000001 /* SystemIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemIntegrationTests.swift; sourceTree = "<group>"; };
 		B00300000000000000000001 /* Myra.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Myra.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00300000000000000000002 /* MyraTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MyraTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00400000000000000000001 /* Package.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Package.swift; sourceTree = "<group>"; };
@@ -367,6 +383,12 @@
 				DBAB813DF0AEF88262E22B3E /* MyraOnDeviceRecommender.swift */,
 				547F612DD48490FCB53DEA92 /* CustomiseHomeSheet.swift */,
 				4292AF263D64C31BC6A680FC /* DownloadsPage.swift */,
+				9E1000000000000000000000 /* AutomaticDownloads.swift */,
+				9E1000000000000000000001 /* SystemIntegration.swift */,
+				9E1000000000000000000002 /* MenuBarStatus.swift */,
+				9E1000000000000000000003 /* MyraIntents.swift */,
+				9E1000000000000000000004 /* ScheduledDownloadsView.swift */,
+				9E1000000000000000000005 /* SystemSettingsSections.swift */,
 				F930CAE7B29D2030E4BCF10D /* HomeCategoryShelves.swift */,
 				BA83F37454A12C441B5E3F04 /* PageCommands.swift */,
 				A1BC9D0E68C35A0D0E11EFCD /* SettingsPage.swift */,
@@ -455,6 +477,8 @@
 				FA10000000000000000000004,
 				7C1000000000000000000099 /* TorrentSearchTests.swift */,
 				B00200000000000000000001,
+				7D3000000000000000000000,
+				7D3000000000000000000001,
 				F41000000000000000000012,
 				F41000000000000000000011,
 				F41000000000000000000008,
@@ -598,6 +622,12 @@ F44000000000000000000001, F44000000000000000000002,
 				166B5CDA60C3C365324453CC /* MyraOnDeviceRecommender.swift in Sources */,
 				83E4FB71CF6B0EBF8267C177 /* CustomiseHomeSheet.swift in Sources */,
 				AE5D26103A06E90A71DEC9A7 /* DownloadsPage.swift in Sources */,
+				9E2000000000000000000000 /* AutomaticDownloads.swift in Sources */,
+				9E2000000000000000000001 /* SystemIntegration.swift in Sources */,
+				9E2000000000000000000002 /* MenuBarStatus.swift in Sources */,
+				9E2000000000000000000003 /* MyraIntents.swift in Sources */,
+				9E2000000000000000000004 /* ScheduledDownloadsView.swift in Sources */,
+				9E2000000000000000000005 /* SystemSettingsSections.swift in Sources */,
 				4431F842311D0AB5020A8347 /* HomeCategoryShelves.swift in Sources */,
 				4939FA4428AB0767C3830B02 /* PageCommands.swift in Sources */,
 				1A1FB1DB67BF6BD988E791FF /* SettingsPage.swift in Sources */,
@@ -688,6 +718,8 @@ F44000000000000000000001, F44000000000000000000002,
 				A00200000000000000000001,
 				DF40E20F2EC764D71FE531AE,
 				A00200000000000000000002,
+				7D4000000000000000000000,
+				7D4000000000000000000001,
 				8E77B861CEB69F248A9495D6,
 				A00200000000000000000003,
 				A00200000000000000000004,

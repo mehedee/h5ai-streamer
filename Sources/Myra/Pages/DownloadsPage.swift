@@ -23,7 +23,7 @@ enum DownloadFormat {
 
 /// The two sections of the Downloads page.
 enum DownloadsSegment: String, CaseIterable, Identifiable, Sendable {
-  case inProgress, library
+  case inProgress, scheduled, library
 
   static let defaultSegment: DownloadsSegment = .inProgress
 
@@ -32,6 +32,7 @@ enum DownloadsSegment: String, CaseIterable, Identifiable, Sendable {
   var title: String {
     switch self {
     case .inProgress: "In Progress"
+    case .scheduled: "Scheduled"
     case .library: "Library"
     }
   }

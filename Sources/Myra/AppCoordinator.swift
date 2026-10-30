@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import SwiftData
 
@@ -11,7 +12,9 @@ enum DownloadQueueVisibility {
 @MainActor
 final class AppCoordinator: ObservableObject {
   @Published private(set) var categories: [Category] = []
-  @Published private(set) var batches: [DownloadBatch] = []
+  @Published private(set) var batches: [DownloadBatch] = [] {
+    didSet { if configured { system.downloadsChanged() } }
+  }
   @Published private(set) var items: [DownloadItem] = []
   @Published var currentCategory: Category?
   @Published var currentURL: URL?
@@ -55,6 +58,11 @@ final class AppCoordinator: ObservableObject {
     library: library, storageURL: personalStorageURL, automaticEnrichment: automaticEnrichment)
   @Published var playbackChoices: PlaybackChoices?
   private var playbackChoiceTask: Task<Void, Never>?
+  /// New episodes of followed series, queued for the off-peak window. Runs only while Myra is open.
+  lazy var automaticQueue = AutomaticDownloadQueue(storageURL: automaticDownloadsURL)
+  /// Menu bar, Dock badge, notifications and Spotlight. Each follows its switch in Settings > Advanced.
+  private(set) lazy var system = SystemIntegrationController(coordinator: self)
+  private var integrationCancellables = Set<AnyCancellable>()
 
   var hasDownloadQueue: Bool {
     DownloadQueueVisibility.shouldShow(
@@ -153,6 +161,7 @@ final class AppCoordinator: ObservableObject {
         self?.settings.map { URL(fileURLWithPath: $0.downloadDirectory, isDirectory: true) }
       }
       Task { await torrents.load() }
+      wireSystemIntegration()
       library.refresh(
         roots: searchRoots, onlyIfDue: true,
         prepare: { [weak self] in
@@ -885,6 +894,7 @@ final class AppCoordinator: ObservableObject {
     library.cancel()
     pollTask?.cancel()
     globalSearchTask?.cancel()
+    automaticQueue.stopTimer()
     await aria2.shutdown()
   }
 
@@ -898,6 +908,7 @@ final class AppCoordinator: ObservableObject {
     pollTask?.cancel()
     scanTask?.cancel()
     globalSearchTask?.cancel()
+    automaticQueue.stopTimer()
     aria2.terminateImmediately()
   }
 
@@ -971,6 +982,7 @@ final class AppCoordinator: ObservableObject {
         item.errorMessage = error.localizedDescription
       }
     }
+    let statusesBefore = Dictionary(uniqueKeysWithValues: batches.map { ($0.id, $0.status) })
     for batch in batches {
       let batchItems = itemsForBatch(batch)
       guard !batchItems.isEmpty else { continue }
@@ -986,7 +998,120 @@ final class AppCoordinator: ObservableObject {
         batch.status = .active
       }
     }
+    for batch in batches where statusesBefore[batch.id] != .completed && batch.status == .completed {
+      system.deliver(.downloadFinished(title: batch.title))
+    }
+    automaticQueue.reconcile(batches: batches)
+    system.downloadsChanged()
     try? modelContext?.save()
+  }
+
+  /// Wires the automatic queue, library, search routes and system switches. Called once from configure.
+  private func wireSystemIntegration() {
+    automaticQueue.startDownload = { [weak self] item in
+      guard let self else { throw DirectoryError.invalidURL }
+      return try await self.startAutomaticDownload(item)
+    }
+    automaticQueue.startTimer(
+      enabled: { MyraSystemPreferences.automaticDownloadsEnabled() },
+      window: { MyraSystemPreferences.offPeakWindow() })
+    Task { [weak self] in
+      await self?.automaticQueue.tick(
+        enabled: MyraSystemPreferences.automaticDownloadsEnabled(),
+        window: MyraSystemPreferences.offPeakWindow())
+    }
+    entertainment.onNewFollowedEpisodes = { [weak self] found in
+      self?.automaticQueue.enqueue(
+        found, enabled: MyraSystemPreferences.automaticDownloadsEnabled())
+    }
+    library.runFinished
+      .sink { [weak self] outcome in
+        Task { @MainActor in self?.handleIndexRun(outcome) }
+      }
+      .store(in: &integrationCancellables)
+    entertainment.$catalogue
+      .dropFirst()
+      .sink { [weak self] titles in
+        Task { @MainActor in self?.system.titlesChanged(titles) }
+      }
+      .store(in: &integrationCancellables)
+    automaticQueue.objectWillChange
+      .sink { [weak self] _ in
+        Task { @MainActor in self?.objectWillChange.send() }
+      }
+      .store(in: &integrationCancellables)
+    NotificationCenter.default
+      .publisher(for: UserDefaults.didChangeNotification)
+      .sink { [weak self] _ in
+        Task { @MainActor in self?.system.apply() }
+      }
+      .store(in: &integrationCancellables)
+    MyraSystemRouter.shared.handler = { [weak self] route in self?.handleSystemRoute(route) }
+    system.apply()
+  }
+
+  private var automaticDownloadsURL: URL? {
+    let directory: URL?
+    if let personalStorageURL {
+      directory = personalStorageURL.deletingLastPathComponent()
+    } else {
+      directory = try? AppPersistence.persistentStoreURL().deletingLastPathComponent()
+    }
+    return directory?.appending(path: "AutomaticDownloads.json")
+  }
+
+  /// Queues one automatic episode through the same batch path as a manual download.
+  private func startAutomaticDownload(_ item: AutomaticDownloadItem) async throws -> UUID {
+    guard let settings, let manifest = item.manifestItem else {
+      throw DirectoryError.invalidURL
+    }
+    let batch = DownloadBatch(title: "\(item.seriesTitle) · \(item.episodeName)")
+    modelContext?.insert(batch)
+    batches.insert(batch, at: 0)
+    try? modelContext?.save()
+    do {
+      try await enqueue(manifest: [manifest], batch: batch, settings: settings)
+    } catch {
+      batch.status = .failed
+      batch.errorMessage = error.localizedDescription
+      try? modelContext?.save()
+      throw error
+    }
+    return batch.id
+  }
+
+  private func handleIndexRun(_ outcome: IndexRunOutcome) {
+    if outcome.changed { system.deliver(.indexingFinished) }
+    if !outcome.failureSummaries.isEmpty {
+      system.deliver(.sourceFailures(summary: outcome.failureSummaries.joined(separator: "; ")))
+    }
+  }
+
+  /// Resolves an App Intent or Spotlight request against the library.
+  private func handleSystemRoute(_ route: MyraSystemRoute) {
+    switch route {
+    case .play(let name):
+      guard let title = titleMatching(name),
+        let version = title.resumeVersion ?? title.versions.first
+      else {
+        errorMessage = "No title in your library matches “\(name)”."
+        return
+      }
+      play(version.media)
+    case .search(let query):
+      searchText = query
+      startGlobalSearch(query: query, debounce: false)
+    case .openTitle(let id):
+      guard let title = entertainment.catalogue.first(where: { $0.id == id }) else { return }
+      searchText = title.displayName
+      startGlobalSearch(query: title.displayName, debounce: false)
+    }
+  }
+
+  private func titleMatching(_ name: String) -> EntertainmentTitle? {
+    let catalogue = entertainment.catalogue
+    return catalogue.first { $0.displayName.caseInsensitiveCompare(name) == .orderedSame }
+      ?? catalogue.first { $0.displayName.localizedCaseInsensitiveContains(name) }
   }
 
   private func isAlreadyComplete(item: DownloadItem) -> Bool {

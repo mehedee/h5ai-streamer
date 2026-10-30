@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Toolbar tabs in the Settings window, in display order.
 enum MyraSettingsTab: String, CaseIterable, Identifiable, Sendable {
-  case general, library, downloads, playback, ai, torrents
+  case general, library, downloads, playback, ai, torrents, advanced
 
   static let defaultTab: MyraSettingsTab = .general
 
@@ -17,6 +17,7 @@ enum MyraSettingsTab: String, CaseIterable, Identifiable, Sendable {
     case .playback: "Playback"
     case .ai: "AI"
     case .torrents: "Torrents"
+    case .advanced: "Advanced"
     }
   }
 
@@ -28,6 +29,7 @@ enum MyraSettingsTab: String, CaseIterable, Identifiable, Sendable {
     case .playback: "play.rectangle"
     case .ai: "sparkles"
     case .torrents: "network"
+    case .advanced: "bolt"
     }
   }
 }
@@ -86,6 +88,7 @@ struct SettingsView: View {
         case .playback: playbackSections
         case .ai: MyraAISettingsSection()
         case .torrents: TorrentSettingsSection(controller: coordinator.torrents)
+        case .advanced: AdvancedSettingsSection()
         }
       }
       .formStyle(.grouped)
@@ -232,6 +235,7 @@ struct SettingsView: View {
           .frame(width: 220)
       }
     }
+    AutomationSettingsGroup()
     SettingsGroup(
       title: "Performance",
       note: "Changes apply immediately. Invalid values are flagged inline instead of being saved."
@@ -311,7 +315,7 @@ struct SettingsView: View {
   }
 }
 
-/// The preview's `.tabs` bar: six icon-over-label tabs, centred, with the selected tab filled and in accent.
+/// The preview's `.tabs` bar: seven icon-over-label tabs, centred, with the selected tab filled and in accent.
 private struct SettingsTabBar: View {
   @Binding var selection: MyraSettingsTab
   let accent: Color

@@ -33,6 +33,8 @@ final class EntertainmentStore: ObservableObject {
   @Published private(set) var newEpisodeIDs: Set<String> = [] {
     didSet { projectionRevision &+= 1 }
   }
+  /// Receives episodes first seen for followed series, for the automatic download queue.
+  var onNewFollowedEpisodes: (([AutomaticDownloadCandidate]) -> Void)?
   @Published private(set) var isEnriching = false
   /// True until the first catalogue has been read or built after launch. Pages show a skeleton, not
   /// an empty state, while it is true.
@@ -826,7 +828,18 @@ final class EntertainmentStore: ObservableObject {
     let new = current.subtracting(personal.knownEpisodeIDs)
     newEpisodeIDs.formUnion(new)
     if !new.isEmpty {
+      var found: [AutomaticDownloadCandidate] = []
+      for title in catalogue where title.kind == .series && personal.followed.contains(title.id) {
+        for version in title.versions where new.contains(Self.episodeID(version)) {
+          if let candidate = AutomaticDownloadCandidate.make(
+            seriesTitle: title.displayName, media: version.media, foundAt: .now)
+          {
+            found.append(candidate)
+          }
+        }
+      }
       mutate { $0.knownEpisodeIDs.formUnion(current) }
+      if !found.isEmpty { onNewFollowedEpisodes?(found) }
       if personal.preferences.notifications {
         let content = UNMutableNotificationContent()
         content.title = "New episodes available"

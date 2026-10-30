@@ -10,7 +10,7 @@ final class PagesModelTests: XCTestCase {
   // MARK: Downloads
 
   func testDownloadsSegmentsDefaultToInProgress() {
-    XCTAssertEqual(DownloadsSegment.allCases.map(\.title), ["In Progress", "Library"])
+    XCTAssertEqual(DownloadsSegment.allCases.map(\.title), ["In Progress", "Scheduled", "Library"])
     XCTAssertEqual(DownloadsSegment.defaultSegment, .inProgress)
   }
 
@@ -68,9 +68,9 @@ final class PagesModelTests: XCTestCase {
   func testSettingsTabsKeepTheApprovedOrder() {
     XCTAssertEqual(
       MyraSettingsTab.allCases.map(\.title),
-      ["General", "Library", "Downloads", "Playback", "AI", "Torrents"])
+      ["General", "Library", "Downloads", "Playback", "AI", "Torrents", "Advanced"])
     XCTAssertEqual(MyraSettingsTab.defaultTab, .general)
-    XCTAssertEqual(Set(MyraSettingsTab.allCases.map(\.symbol)).count, 6)
+    XCTAssertEqual(Set(MyraSettingsTab.allCases.map(\.symbol)).count, 7)
   }
 
   func testSpeedLimitAcceptsAria2Forms() {

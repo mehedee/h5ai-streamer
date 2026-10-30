@@ -1,4 +1,5 @@
 import AppKit
+import CoreSpotlight
 import SwiftData
 import SwiftUI
 
@@ -174,6 +175,14 @@ struct MyraApp: App {
         .modelContainer(container)
         .frame(minWidth: 1_000, minHeight: 650)
         .onOpenURL { coordinator.torrents.handleOpenURL($0) }
+        .onContinueUserActivity(CSSearchableItemActionType) { activity in
+          // A Spotlight result for a title: Myra opens and searches for that title.
+          guard
+            let identifier = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+            let titleID = SpotlightTitleIndex.titleID(from: identifier)
+          else { return }
+          MyraSystemRouter.shared.post(.openTitle(id: titleID))
+        }
         .onAppear {
           MyraAppearance.apply()
           coordinator.updater.start()
