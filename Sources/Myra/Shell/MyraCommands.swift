@@ -7,7 +7,7 @@ import SwiftUI
 /// same notification for page-owned actions. Items without a handler are disabled with a
 /// `.help` reason in `MyraCommandContext`-driven availability, so they never fail silently.
 enum MyraCommand: Hashable, Sendable {
-  case showHome, showWatchlist, showSources, showDownloads, showTransfers
+  case showHome, showWatchlist, showInsights, showSources, showDownloads, showTransfers
   /// Collapses the sidebar to its icon rail, or expands it again.
   case toggleSidebar
   case addSource, openTorrentLink, importTorrentFile, refreshLibrary, find
@@ -23,7 +23,8 @@ enum MyraCommand: Hashable, Sendable {
 
   static let allCommands: [MyraCommand] =
     [
-      .showHome, .showWatchlist, .showSources, .showDownloads, .showTransfers, .toggleSidebar,
+      .showHome, .showWatchlist, .showInsights, .showSources, .showDownloads, .showTransfers,
+      .toggleSidebar,
       .addSource, .openTorrentLink, .importTorrentFile, .refreshLibrary, .find,
       .pauseAllDownloads, .resumeAllDownloads, .clearCompletedDownloads,
       .togglePlayback, .skipBack, .skipForward, .previousEpisode, .nextEpisode,
@@ -35,6 +36,7 @@ enum MyraCommand: Hashable, Sendable {
     switch self {
     case .showHome: "showHome"
     case .showWatchlist: "showWatchlist"
+    case .showInsights: "showInsights"
     case .toggleSidebar: "toggleSidebar"
     case .showSources: "showSources"
     case .showDownloads: "showDownloads"
@@ -187,6 +189,7 @@ struct MyraCommands: Commands {
       item(.showSources, "Sources").keyboardShortcut("2", modifiers: .command)
       item(.showDownloads, "Downloads").keyboardShortcut("3", modifiers: .command)
       item(.showTransfers, "Transfers").keyboardShortcut("4", modifiers: .command)
+      item(.showInsights, "Insights").keyboardShortcut("7", modifiers: .command)
       item(.showWatchlist, "Watchlist").keyboardShortcut("8", modifiers: .command)
       Divider()
       item(.toggleSidebar, sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar")

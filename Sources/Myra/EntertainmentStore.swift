@@ -365,6 +365,39 @@ final class EntertainmentStore: ObservableObject {
   func toggleWatchlist(_ titleID: String) { mutate { Self.toggle(titleID, in: &$0.watchlist) } }
   func toggleWatched(_ titleID: String) { mutate { Self.toggle(titleID, in: &$0.watched) } }
 
+  /// The longest private note kept for one title.
+  static let maxNoteLength = 5_000
+
+  /// Sets or clears this Mac's private 1 to 5 star rating. Keyed by title ID, which metadata
+  /// refreshes never change, so a rating survives them.
+  func setRating(_ titleID: String, stars: Int?) {
+    mutate { data in
+      var ratings = data.ratings ?? [:]
+      if let stars {
+        ratings[titleID] = min(5, max(1, stars))
+      } else {
+        ratings.removeValue(forKey: titleID)
+      }
+      data.ratings = ratings.isEmpty ? nil : ratings
+    }
+  }
+
+  /// Saves a private note. Blank text removes the note; longer text is cut to `maxNoteLength`.
+  func setNote(_ titleID: String, text: String) {
+    let cleaned = String(
+      text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(Self.maxNoteLength))
+    guard (personal.notes?[titleID] ?? "") != cleaned else { return }
+    mutate { data in
+      var notes = data.notes ?? [:]
+      if cleaned.isEmpty {
+        notes.removeValue(forKey: titleID)
+      } else {
+        notes[titleID] = cleaned
+      }
+      data.notes = notes.isEmpty ? nil : notes
+    }
+  }
+
   enum RecommendationReaction { case like, dislike, notTonight }
 
   /// Like and dislike are exclusive toggles; "Not tonight" hides a title for one evening.
@@ -435,14 +468,7 @@ final class EntertainmentStore: ObservableObject {
       data.matchCorrections[versionID] = EntertainmentMatchCorrection(
         title: name, year: year, kind: kind, providerID: providerID)
       if let previousID, previousID != nextID {
-        if data.watchlist.remove(previousID) != nil { data.watchlist.insert(nextID) }
-        if data.watched.remove(previousID) != nil { data.watched.insert(nextID) }
-        if data.followed.remove(previousID) != nil { data.followed.insert(nextID) }
-        for offset in data.collections.indices {
-          if data.collections[offset].titleIDs.remove(previousID) != nil {
-            data.collections[offset].titleIDs.insert(nextID)
-          }
-        }
+        Self.moveTitleReferences(&data, from: previousID, to: nextID)
       }
     }
     Task { await reload() }
@@ -506,6 +532,9 @@ final class EntertainmentStore: ObservableObject {
     }
     cleaned.history = try Self.portableDictionary(cleaned.history)
     cleaned.matchCorrections = try Self.portableDictionary(cleaned.matchCorrections)
+    // Ratings and notes are keyed by title ID, so they travel in the backup like watched state.
+    cleaned.ratings = try cleaned.ratings.map { try Self.portableDictionary($0) }
+    cleaned.notes = try cleaned.notes.map { try Self.portableDictionary($0) }
     var cleanedPlayer = player
     if let player { cleanedPlayer?.markers = try Self.portableDictionary(player.markers) }
     var cleanedSources = sources
@@ -569,32 +598,10 @@ final class EntertainmentStore: ObservableObject {
         "backup-\(UUID().uuidString).json")
       try FileManager.default.copyItem(at: url, to: backup)
     }
-    var result = archive.personal
-    if !replace {
-      result = personal
-      result.watchlist.formUnion(archive.personal.watchlist)
-      result.watched.formUnion(archive.personal.watched)
-      result.followed.formUnion(archive.personal.followed)
-      result.knownEpisodeIDs.formUnion(archive.personal.knownEpisodeIDs)
-      for collection in archive.personal.collections {
-        if let offset = result.collections.firstIndex(where: { $0.id == collection.id }) {
-          result.collections[offset].titleIDs.formUnion(collection.titleIDs)
-        } else {
-          result.collections.append(collection)
-        }
-      }
-      result.matchCorrections.merge(archive.personal.matchCorrections) { _, new in new }
-      result.history.merge(archive.personal.history) { old, new in
-        old.updated > new.updated ? old : new
-      }
-      if let imported = archive.personal.recommendationFeedback {
-        var feedback = result.recommendationFeedback ?? .init()
-        feedback.liked.formUnion(imported.liked.subtracting(feedback.disliked))
-        feedback.disliked.formUnion(imported.disliked.subtracting(feedback.liked))
-        feedback.dismissed.merge(imported.dismissed) { max($0, $1) }
-        result.recommendationFeedback = feedback
-      }
-    }
+    let result =
+      replace
+      ? archive.personal
+      : Self.mergedPersonal(local: personal, imported: archive.personal)
     try Self.validate(result)
     let data = try JSONEncoder().encode(result)
     try FileManager.default.createDirectory(
@@ -666,7 +673,11 @@ final class EntertainmentStore: ObservableObject {
       }),
       data.matchCorrections.values.allSatisfy({
         !$0.title.isEmpty && $0.title.count <= 300 && ($0.providerID == nil || $0.providerID! > 0)
-      })
+      }),
+      (data.ratings ?? [:]).count <= 100_000,
+      (data.ratings ?? [:]).values.allSatisfy({ (1...5).contains($0) }),
+      (data.notes ?? [:]).count <= 100_000,
+      (data.notes ?? [:]).values.allSatisfy({ $0.count <= maxNoteLength })
     else { throw DiscoveryError.invalidImport("Invalid personal library data.") }
   }
   /// Applies an explicit reviewed proposal atomically, without altering media files or history.
@@ -699,15 +710,7 @@ final class EntertainmentStore: ObservableObject {
       guard regrouped.count == 1, let nextID = regrouped.first?.id else {
         throw MyraAIError.unsafeAction
       }
-      let previousID = selected[0].id
-      if updated.watchlist.remove(previousID) != nil { updated.watchlist.insert(nextID) }
-      if updated.watched.remove(previousID) != nil { updated.watched.insert(nextID) }
-      if updated.followed.remove(previousID) != nil { updated.followed.insert(nextID) }
-      for index in updated.collections.indices {
-        if updated.collections[index].titleIDs.remove(previousID) != nil {
-          updated.collections[index].titleIDs.insert(nextID)
-        }
-      }
+      Self.moveTitleReferences(&updated, from: selected[0].id, to: nextID)
     default: throw MyraAIError.unsafeAction
     }
     try Self.validate(updated)
@@ -719,9 +722,11 @@ final class EntertainmentStore: ObservableObject {
   func restoreReviewedAISnapshot(_ snapshot: EntertainmentPersonalData) throws {
     guard canWrite, let url else { throw MyraAIError.unsafeAction }
     var updated = snapshot
-    // Playback and newly discovered episodes are never rolled back by a personal action.
+    // Playback, newly discovered episodes and personal ratings and notes are never rolled back.
     updated.history = personal.history
     updated.knownEpisodeIDs = personal.knownEpisodeIDs
+    updated.ratings = personal.ratings
+    updated.notes = personal.notes
     try Self.validate(updated)
     try JSONEncoder().encode(updated).write(to: url, options: .atomic)
     let changedGrouping = !updated.matchCorrections.isEmpty || !personal.matchCorrections.isEmpty
@@ -731,6 +736,68 @@ final class EntertainmentStore: ObservableObject {
 
   private static func toggle(_ value: String, in set: inout Set<String>) {
     if !set.insert(value).inserted { set.remove(value) }
+  }
+
+  /// Non-replacing import: the union of both profiles. Where both hold a personal rating or note for
+  /// the same title, this Mac's value is kept.
+  static func mergedPersonal(
+    local: EntertainmentPersonalData, imported: EntertainmentPersonalData
+  ) -> EntertainmentPersonalData {
+    var result = local
+    result.watchlist.formUnion(imported.watchlist)
+    result.watched.formUnion(imported.watched)
+    result.followed.formUnion(imported.followed)
+    result.knownEpisodeIDs.formUnion(imported.knownEpisodeIDs)
+    for collection in imported.collections {
+      if let offset = result.collections.firstIndex(where: { $0.id == collection.id }) {
+        result.collections[offset].titleIDs.formUnion(collection.titleIDs)
+      } else {
+        result.collections.append(collection)
+      }
+    }
+    result.matchCorrections.merge(imported.matchCorrections) { _, new in new }
+    result.history.merge(imported.history) { old, new in old.updated > new.updated ? old : new }
+    if let feedbackImport = imported.recommendationFeedback {
+      var feedback = result.recommendationFeedback ?? .init()
+      feedback.liked.formUnion(feedbackImport.liked.subtracting(feedback.disliked))
+      feedback.disliked.formUnion(feedbackImport.disliked.subtracting(feedback.liked))
+      feedback.dismissed.merge(feedbackImport.dismissed) { max($0, $1) }
+      result.recommendationFeedback = feedback
+    }
+    var ratings = imported.ratings ?? [:]
+    ratings.merge(local.ratings ?? [:]) { _, mine in mine }
+    result.ratings = ratings.isEmpty ? nil : ratings
+    var notes = imported.notes ?? [:]
+    notes.merge(local.notes ?? [:]) { _, mine in mine }
+    result.notes = notes.isEmpty ? nil : notes
+    return result
+  }
+
+  /// Carries every personal fact stored against one title from its old grouping ID to the new one,
+  /// after a match correction moves its files. Where both IDs hold a note, the two are kept together.
+  static func moveTitleReferences(
+    _ data: inout EntertainmentPersonalData, from previousID: String, to nextID: String
+  ) {
+    if data.watchlist.remove(previousID) != nil { data.watchlist.insert(nextID) }
+    if data.watched.remove(previousID) != nil { data.watched.insert(nextID) }
+    if data.followed.remove(previousID) != nil { data.followed.insert(nextID) }
+    for offset in data.collections.indices {
+      if data.collections[offset].titleIDs.remove(previousID) != nil {
+        data.collections[offset].titleIDs.insert(nextID)
+      }
+    }
+    if var ratings = data.ratings, let stars = ratings.removeValue(forKey: previousID) {
+      if ratings[nextID] == nil { ratings[nextID] = stars }
+      data.ratings = ratings.isEmpty ? nil : ratings
+    }
+    if var notes = data.notes, let moved = notes.removeValue(forKey: previousID) {
+      if let existing = notes[nextID], !existing.isEmpty {
+        notes[nextID] = existing + "\n\n" + moved
+      } else {
+        notes[nextID] = moved
+      }
+      data.notes = notes.isEmpty ? nil : notes
+    }
   }
   private func mutate(_ change: (inout EntertainmentPersonalData) -> Void) {
     guard canWrite, let url else {

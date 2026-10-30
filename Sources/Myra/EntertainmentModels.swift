@@ -16,6 +16,23 @@ struct EntertainmentMetadata: Codable, Sendable, Equatable {
   var episodeReleaseDates: [String: String]? = nil
   /// TMDB backdrop (w780). Optional so metadata cached before this field existed still decodes.
   var backdropURL: URL? = nil
+  /// Cast and crew when the stored metadata includes them. Nil or empty shows a placeholder.
+  var credits: [EntertainmentCredit]? = nil
+  /// A trailer link when the stored metadata includes one. The app never looks one up itself.
+  var trailerURL: URL? = nil
+
+  /// The trailer to open: only an HTTP(S) link that the metadata already carries.
+  var openableTrailerURL: URL? {
+    guard let trailerURL, ["http", "https"].contains(trailerURL.scheme?.lowercased() ?? "")
+    else { return nil }
+    return trailerURL
+  }
+}
+
+/// One person in the cast or crew list, as the stored metadata describes them.
+struct EntertainmentCredit: Codable, Sendable, Equatable {
+  var name: String
+  var role: String
 }
 
 struct EntertainmentVersion: Identifiable, Sendable, Hashable, Codable {
@@ -112,6 +129,10 @@ struct EntertainmentPersonalData: Codable, Sendable {
   var recommendationFeedback: MyraRecommendationFeedback?
   /// Automatic Home shelf choices. Nil for personal data written before shelves existed.
   var homeCategories: HomeCategoryPreferences? = nil
+  /// Personal 1 to 5 star ratings keyed by title ID. Optional so older profiles still decode.
+  var ratings: [String: Int]? = nil
+  /// Private notes keyed by title ID. Optional so older profiles still decode.
+  var notes: [String: String]? = nil
 }
 
 struct MyraRecommendationFeedback: Codable, Sendable, Equatable {

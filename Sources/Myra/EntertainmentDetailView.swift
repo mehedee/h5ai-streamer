@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Keeps source identity visible while allowing a persistent manual metadata correction.
@@ -17,6 +18,8 @@ struct EntertainmentDetailView: View {
   @State private var selectedVersion = ""
   @State private var applyToAll = true
   @State private var correctionError: String?
+  /// The note being edited. Nil until loaded, so a blank placeholder is never saved over a note.
+  @State private var noteDraft: String?
 
   private var current: EntertainmentTitle { store.catalogue.first { $0.id == title.id } ?? title }
 
@@ -25,6 +28,8 @@ struct EntertainmentDetailView: View {
       VStack(alignment: .leading, spacing: 24) {
         header
         hero
+        personalSection
+        castSection
         if let aiAction {
           SectionHeader(title: "Explore with Myra")
           aiMenu(aiAction)
@@ -67,7 +72,99 @@ struct EntertainmentDetailView: View {
       correctedYear = current.year ?? ""
       correctedKind = current.kind
       selectedVersion = current.versions.first?.id ?? ""
+      noteDraft = store.personal.notes?[current.id] ?? ""
     }
+    .onDisappear {
+      if let noteDraft { store.setNote(current.id, text: noteDraft) }
+    }
+  }
+
+  private var currentRating: Int { store.personal.ratings?[current.id] ?? 0 }
+
+  /// Your rating and private notes. Both live in the personal data, keyed by the title, so a
+  /// metadata refresh never changes them.
+  private var personalSection: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      SectionHeader(title: "Your Rating")
+      HStack(spacing: 6) {
+        ForEach(1...5, id: \.self) { star in
+          Button {
+            store.setRating(current.id, stars: star)
+          } label: {
+            Image(systemName: star <= currentRating ? "star.fill" : "star")
+              .font(.system(size: 18))
+              .foregroundStyle(star <= currentRating ? Color.yellow : MyraColor.text3)
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("\(star) star\(star == 1 ? "" : "s")")
+          .accessibilityAddTraits(star == currentRating ? .isSelected : [])
+        }
+        if currentRating > 0 {
+          Button("Clear") { store.setRating(current.id, stars: nil) }
+            .buttonStyle(.link)
+            .font(.system(size: 12))
+            .padding(.leading, 6)
+        }
+      }
+      SectionHeader(title: "Private Notes")
+      TextEditor(
+        text: Binding(get: { noteDraft ?? "" }, set: { noteDraft = $0 })
+      )
+      .font(.system(size: 13))
+      .frame(minHeight: 84)
+      .scrollContentBackground(.hidden)
+      .padding(6)
+      .background(MyraColor.fill2, in: RoundedRectangle(cornerRadius: 8))
+      .accessibilityLabel("Private notes")
+      // Saves once typing pauses; leaving the sheet saves at once (see onDisappear).
+      .task(id: noteDraft) {
+        guard let draft = noteDraft else { return }
+        try? await Task.sleep(for: .milliseconds(600))
+        guard !Task.isCancelled else { return }
+        store.setNote(current.id, text: draft)
+      }
+      Text("Only on this Mac. Ratings and notes are kept through metadata refreshes and included in your backup.")
+        .font(.caption).foregroundStyle(MyraColor.text3)
+    }
+  }
+
+  /// Cast and crew from the title's stored metadata. Nothing is looked up when it is absent.
+  private var castSection: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      SectionHeader(title: "Cast & Crew")
+      if let credits = current.metadata?.credits, !credits.isEmpty {
+        FlowLayout(spacing: 16) {
+          ForEach(Array(credits.enumerated()), id: \.offset) { _, credit in
+            HStack(spacing: 8) {
+              Text(Self.initials(credit.name))
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(MyraColor.text2))
+              VStack(alignment: .leading, spacing: 2) {
+                Text(credit.name).font(.system(size: 13, weight: .semibold))
+                Text(credit.role)
+                  .font(.system(size: 12)).foregroundStyle(MyraColor.text2)
+              }
+            }
+          }
+        }
+      } else {
+        Text("Cast and crew are not in this title's metadata yet.")
+          .font(.system(size: 13))
+          .foregroundStyle(MyraColor.text2)
+      }
+    }
+  }
+
+  private static func initials(_ name: String) -> String {
+    name.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined()
+  }
+
+  /// Opens the trailer only when the stored metadata carries a link. No lookup happens here.
+  private func openTrailer() {
+    guard let url = current.metadata?.openableTrailerURL else { return }
+    NSWorkspace.shared.open(url)
   }
 
   private var header: some View {
@@ -157,6 +254,11 @@ struct EntertainmentDetailView: View {
     FlowLayout(spacing: 8) {
       Button(current.resumeVersion == nil ? "Play" : "Resume") { play(current) }
         .buttonStyle(MyraButtonStyle(prominent: true))
+      let hasTrailer = current.metadata?.openableTrailerURL != nil
+      Button("Trailer") { openTrailer() }
+        .buttonStyle(MyraButtonStyle())
+        .disabled(!hasTrailer)
+        .help(hasTrailer ? "Open the trailer" : "No trailer link is in this title's metadata")
       // A toggle: filled with the accent while the title is saved.
       let saved = store.personal.watchlist.contains(current.id)
       Button {
