@@ -56,6 +56,16 @@ final class AppCoordinator: ObservableObject {
   private let automaticEnrichment: Bool
   lazy var entertainment = EntertainmentStore(
     library: library, storageURL: personalStorageURL, automaticEnrichment: automaticEnrichment)
+  /// Backups of the library index and personal data, restore, and the Storage totals.
+  lazy var backups = LibraryBackupService(
+    library: library, entertainment: entertainment,
+    personalURL: personalStorageURL ?? Self.defaultDataFolder.appending(path: "EntertainmentPersonal.json"),
+    backupRoot: Self.defaultDataFolder.appending(path: "Backups", directoryHint: .isDirectory))
+  /// `<Application Support>/com.mehedee.Myra`, or the isolated profile folder.
+  static var defaultDataFolder: URL {
+    (try? AppPersistence.persistentStoreURL().deletingLastPathComponent())
+      ?? FileManager.default.temporaryDirectory
+  }
   @Published var playbackChoices: PlaybackChoices?
   private var playbackChoiceTask: Task<Void, Never>?
   /// New episodes of followed series, queued for the off-peak window. Runs only while Myra is open.
@@ -118,6 +128,11 @@ final class AppCoordinator: ObservableObject {
         Task { await selectCategory(first) }
       }
       Task { await recoverDownloads() }
+      // The daily backup runs shortly after launch, once it is due.
+      Task { [weak self] in
+        try? await Task.sleep(for: .seconds(30))
+        await self?.backups.runDailyIfDue()
+      }
       library.isPlaying = { [weak self] in self?.player.isPlaying == true }
       library.didUpdate = { [weak self] in
         guard let self else { return }
@@ -441,11 +456,26 @@ final class AppCoordinator: ObservableObject {
       }
       guard !Task.isCancelled else { return }
       if versions.count > 1 {
+        let titleID = entertainment.catalogue.first { title in
+          title.versions.contains { $0.id == result.entry.url.absoluteString }
+        }?.id
+        let choice = BestVersionPicker.choose(
+          versions: versions,
+          titleQuality: titleID.flatMap { entertainment.personal.titleQualities?[$0] },
+          preferredQuality: entertainment.personal.preferences.preferredQuality)
+        if let choice, choice.followsTitlePreference {
+          playChosenVersion(choice.version.media)
+          return
+        }
         let preferred = versions.filter { $0.lastPlayed != nil }.max {
           ($0.lastPlayed ?? .distantPast) < ($1.lastPlayed ?? .distantPast)
         }
         playbackChoices = PlaybackChoices(
-          versions: versions, preferredURL: preferred?.media.entry.url ?? result.entry.url)
+          versions: versions,
+          preferredURL: preferred?.media.entry.url ?? choice?.version.media.entry.url
+            ?? result.entry.url,
+          reason: preferred == nil ? choice?.reason : "You played this title last time.",
+          titleID: titleID)
       } else {
         playChosenVersion(result)
       }

@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Toolbar tabs in the Settings window, in display order.
 enum MyraSettingsTab: String, CaseIterable, Identifiable, Sendable {
-  case general, library, downloads, playback, ai, torrents, advanced
+  case general, library, downloads, playback, ai, torrents, data, advanced
 
   static let defaultTab: MyraSettingsTab = .general
 
@@ -17,6 +17,7 @@ enum MyraSettingsTab: String, CaseIterable, Identifiable, Sendable {
     case .playback: "Playback"
     case .ai: "AI"
     case .torrents: "Torrents"
+    case .data: "Data"
     case .advanced: "Advanced"
     }
   }
@@ -29,6 +30,7 @@ enum MyraSettingsTab: String, CaseIterable, Identifiable, Sendable {
     case .playback: "play.rectangle"
     case .ai: "sparkles"
     case .torrents: "network"
+    case .data: "externaldrive"
     case .advanced: "bolt"
     }
   }
@@ -88,6 +90,7 @@ struct SettingsView: View {
         case .playback: playbackSections
         case .ai: MyraAISettingsSection()
         case .torrents: TorrentSettingsSection(controller: coordinator.torrents)
+        case .data: DataSettingsSection(backups: coordinator.backups)
         case .advanced: AdvancedSettingsSection()
         }
       }
@@ -271,6 +274,7 @@ struct SettingsView: View {
 
   @ViewBuilder private var playbackSections: some View {
     PlayerSettingsGroup(player: coordinator.player)
+    PlaybackVersionsGroup(store: store)
     SubtitleSettingsSection()
   }
 

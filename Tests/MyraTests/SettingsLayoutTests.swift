@@ -11,6 +11,7 @@ final class SettingsLayoutTests: XCTestCase {
       MyraSettingsTab.allCases.map(\.symbol),
       [
         "gearshape", "books.vertical", "arrow.down.circle", "play.rectangle", "sparkles", "network",
+        "externaldrive",
         "bolt",
       ])
   }

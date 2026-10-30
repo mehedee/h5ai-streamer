@@ -114,6 +114,18 @@ struct TitleBrowserHost<Content: View>: View {
       return
     }
     guard !title.versions.isEmpty else { return }
+    // A movie with an "Always use" quality plays that release directly. Series choose per episode.
+    if title.kind == .movie, title.versions.count > 1,
+      let choice = BestVersionPicker.choose(
+        versions: title.versions, titleQuality: store.personal.titleQualities?[title.id],
+        preferredQuality: store.personal.preferences.preferredQuality),
+      choice.followsTitlePreference
+    {
+      details = nil
+      showingAI = false
+      coordinator.playChosenVersion(choice.version.media)
+      return
+    }
     if title.versions.count == 1, let version = title.versions.first {
       details = nil
       showingAI = false
