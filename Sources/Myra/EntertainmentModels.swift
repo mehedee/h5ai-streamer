@@ -27,12 +27,15 @@ struct EntertainmentVersion: Identifiable, Sendable, Hashable, Codable {
   var season: Int?
   var episode: Int?
   var id: String { media.entry.url.absoluteString }
+  static let qualityTokenList = [
+    "2160p", "1080p", "720p", "480p", "4K", "BluRay", "WEB-DL", "WEBRip", "HDR", "x265", "x264",
+  ]
+  /// Release tokens present in a file name, in a fixed order.
+  static func qualityTokens(in name: String) -> [String] {
+    qualityTokenList.filter { name.localizedCaseInsensitiveContains($0) }
+  }
   var quality: String {
-    let name = media.entry.name
-    let tokens = [
-      "2160p", "1080p", "720p", "480p", "4K", "BluRay", "WEB-DL", "WEBRip", "HDR", "x265", "x264",
-    ]
-    return tokens.filter { name.localizedCaseInsensitiveContains($0) }.joined(separator: " · ")
+    Self.qualityTokens(in: media.entry.name).joined(separator: " · ")
   }
 }
 
@@ -82,7 +85,7 @@ struct EntertainmentPreferences: Codable, Sendable, Equatable {
   var notifications: Bool = false
 }
 
-struct EntertainmentMatchCorrection: Codable, Sendable {
+struct EntertainmentMatchCorrection: Codable, Sendable, Equatable {
   var title: String
   var year: String?
   var kind: EntertainmentKind
@@ -124,49 +127,109 @@ struct MyraRecommendationFeedback: Codable, Sendable, Equatable {
   }
 }
 
+/// Where one file belongs: the title it joins and the episode it carries.
+struct EntertainmentPlacement: Sendable, Equatable {
+  let key: String
+  let name: String
+  let year: String?
+  let kind: EntertainmentKind
+  let season: Int?
+  let episode: Int?
+}
+
 enum EntertainmentGrouping {
+  /// Decides which title one file joins. Pure and independent of every other file, so a catalogue
+  /// can be updated one changed file at a time and still match a full regrouping.
+  static func placement(
+    fileName: String, url: URL, correction: EntertainmentMatchCorrection?
+  ) -> EntertainmentPlacement {
+    let identity = MediaIdentity.parse(filename: fileName)
+    let season = identity.season.flatMap(Int.init)
+    let episode = identity.episode.flatMap(Int.init)
+    let name = correction?.title ?? identity.title
+    let year = correction?.year ?? identity.year
+    let kind = correction?.kind ?? (episode == nil ? .movie : .series)
+    let normalized = name.folding(
+      options: [.caseInsensitive, .diacriticInsensitive],
+      locale: Locale(identifier: "en_US_POSIX")
+    ).trimmingCharacters(in: .whitespacesAndNewlines)
+    // A year, episode token, or explicit correction is required to merge across files.
+    let confident = year != nil || episode != nil || correction != nil
+    let key: String
+    if confident {
+      key = "\(kind.rawValue)|\(normalized)|\(year ?? "")"
+    } else if !EntertainmentVersion.qualityTokens(in: fileName).isEmpty {
+      key = "folder|\(url.deletingLastPathComponent().absoluteString)|\(normalized)"
+    } else {
+      key = "file|\(url.absoluteString)"
+    }
+    return EntertainmentPlacement(
+      key: key, name: name, year: year, kind: kind, season: season, episode: episode)
+  }
+
+  /// Sort key for title names: case and accents ignored, digit runs compared as numbers.
+  static func sortKey(_ name: String) -> String {
+    let folded = name.folding(
+      options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+    var result = ""
+    var digits = ""
+    for character in folded {
+      if character.isASCII, character.isNumber {
+        digits.append(character)
+        continue
+      }
+      if !digits.isEmpty {
+        result += String(repeating: "0", count: max(0, 12 - digits.count)) + digits
+        digits = ""
+      }
+      result.append(character)
+    }
+    if !digits.isEmpty { result += String(repeating: "0", count: max(0, 12 - digits.count)) + digits }
+    return result
+  }
+
+  static func orderVersions(_ versions: inout [EntertainmentVersion]) {
+    versions.sort {
+      if ($0.season ?? 0) != ($1.season ?? 0) { return ($0.season ?? 0) < ($1.season ?? 0) }
+      if ($0.episode ?? 0) != ($1.episode ?? 0) { return ($0.episode ?? 0) < ($1.episode ?? 0) }
+      let left = $0.media.entry.name
+      let right = $1.media.entry.name
+      return left != right ? left < right : $0.id < $1.id
+    }
+  }
+
   static func group(
     _ versions: [EntertainmentVersion], corrections: [String: EntertainmentMatchCorrection] = [:]
   ) -> [EntertainmentTitle] {
     var titles: [String: EntertainmentTitle] = [:]
-    for var version in versions {
-      let identity = MediaIdentity.parse(filename: version.media.entry.name)
-      let correction = corrections[version.id]
-      version.season = identity.season.flatMap(Int.init)
-      version.episode = identity.episode.flatMap(Int.init)
-      let name = correction?.title ?? identity.title
-      let year = correction?.year ?? identity.year
-      let kind = correction?.kind ?? (version.episode == nil ? .movie : .series)
-      let normalized = name.folding(
-        options: [.caseInsensitive, .diacriticInsensitive],
-        locale: Locale(identifier: "en_US_POSIX")
-      ).trimmingCharacters(in: .whitespacesAndNewlines)
-      // A year, episode token, or explicit correction is required to merge across files.
-      let confident = year != nil || version.episode != nil || correction != nil
-      let hasReleaseToken = !version.quality.isEmpty
-      let folder = version.media.entry.url.deletingLastPathComponent().absoluteString
-      let key: String
-      if confident {
-        key = "\(kind.rawValue)|\(normalized)|\(year ?? "")"
-      } else if hasReleaseToken {
-        key = "folder|\(folder)|\(normalized)"
-      } else {
-        key = "file|\(version.id)"
+    // Placement is pure per file, so large libraries are parsed across the processor cores.
+    let placements = ParallelChunks.map(count: versions.count) { range in
+      range.map { offset -> EntertainmentPlacement in
+        let version = versions[offset]
+        return placement(
+          fileName: version.media.entry.name, url: version.media.entry.url,
+          correction: corrections[version.id])
       }
+    }
+    for (offset, var version) in versions.enumerated() {
+      let placement = placements[offset]
+      version.season = placement.season
+      version.episode = placement.episode
+      let key = placement.key
       if titles[key] == nil {
-        titles[key] = EntertainmentTitle(id: key, name: name, year: year, kind: kind, versions: [])
+        titles[key] = EntertainmentTitle(
+          id: key, name: placement.name, year: placement.year, kind: placement.kind, versions: [])
       }
       titles[key]?.versions.append(version)
     }
     return titles.values.map { title in
       var value = title
-      value.versions.sort {
-        if ($0.season ?? 0) != ($1.season ?? 0) { return ($0.season ?? 0) < ($1.season ?? 0) }
-        if ($0.episode ?? 0) != ($1.episode ?? 0) { return ($0.episode ?? 0) < ($1.episode ?? 0) }
-        return $0.media.entry.name.localizedStandardCompare($1.media.entry.name)
-          == .orderedAscending
-      }
+      orderVersions(&value.versions)
       return value
-    }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }.sorted {
+      let left = sortKey($0.name)
+      let right = sortKey($1.name)
+      return left != right ? left < right : $0.id < $1.id
+    }
   }
 }

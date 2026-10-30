@@ -84,9 +84,9 @@ struct HomeView: View {
   @FocusState private var searchFocused: Bool
   @Environment(\.myraAccent) private var accent
 
-  @State private var prepared = HomeCatalogueProjection()
+  @State private var prepared: HomeCatalogueProjection
   @State private var preparedFilter: HomeCatalogueFilter?
-  private static let projectionWorker = HomeProjectionWorker()
+  private static let projectionWorker = HomeProjectionWorker.shared
   private var filter: HomeCatalogueFilter {
     .init(
       query: query, genre: genre, language: language, year: year, source: source,
@@ -107,6 +107,8 @@ struct HomeView: View {
     self.coordinator = coordinator
     self.store = store
     _mood = State(initialValue: initialMood)
+    // Returning to Home draws the kept projection at once instead of an empty page.
+    _prepared = State(initialValue: store.preparedProjection)
   }
 
   var body: some View {
@@ -926,6 +928,8 @@ struct HomeCatalogueFilter: Hashable, Sendable {
   var minimumRating: Double
   var hideWatched: Bool
   var revision: Int
+  /// Resolution or HDR tag found in file names (4K, 1080p, 720p, 480p, HDR). Empty means any.
+  var quality: String = ""
 }
 
 struct HomeCatalogueProjection: Sendable {
@@ -939,65 +943,38 @@ struct HomeCatalogueProjection: Sendable {
   var languages: [String] = []
   var years: [String] = []
   var sources: [String] = []
+  var qualities: [String] = []
+  /// Option lists with counts; each reflects what the other active filters leave visible.
+  var facets = CatalogueFacets()
   /// Automatic shelves built from the filtered titles, in the user's arrangement, hidden shelves removed.
   var shelves: [HomeAutomaticShelf] = []
 }
 
 actor HomeProjectionWorker {
+  /// Shared so the store can prepare the default view before Home is on screen.
+  static let shared = HomeProjectionWorker()
+
+  private var cached: HomeCatalogueIndex?
+
+  /// The prepared index for this catalogue; rebuilt only when titles or their metadata changed.
+  func index(for catalogue: [EntertainmentTitle]) -> HomeCatalogueIndex {
+    let signature = HomeCatalogueIndex.Signature(catalogue)
+    if let cached, cached.signature == signature { return cached }
+    let built = HomeCatalogueIndex(titles: catalogue)
+    cached = built
+    return built
+  }
+
   func prepare(
     _ catalogue: [EntertainmentTitle], personal: EntertainmentPersonalData,
     filter: HomeCatalogueFilter
   ) throws -> HomeCatalogueProjection {
     let mark = MyraPerformance.begin(PerfMark.homeRender)
     defer { mark.end("projection of \(catalogue.count) titles") }
-    var result = HomeCatalogueProjection()
-    var genres: Set<String> = []
-    var languages: Set<String> = []
-    var years: Set<String> = []
-    var sources: Set<String> = []
-    for title in catalogue {
-      try Task.checkCancellation()
-      genres.formUnion(title.metadata?.genres ?? [])
-      if let language = title.metadata?.language { languages.insert(language) }
-      if let year = title.year { years.insert(year) }
-      for version in title.versions { sources.insert(version.media.categoryName) }
-      guard
-        filter.query.isEmpty || title.displayName.localizedCaseInsensitiveContains(filter.query),
-        filter.genre.isEmpty || title.metadata?.genres.contains(filter.genre) == true,
-        filter.language.isEmpty || title.metadata?.language == filter.language,
-        filter.year.isEmpty || title.year == filter.year
-          || title.metadata?.releaseDate?.hasPrefix(filter.year) == true,
-        filter.source.isEmpty
-          || title.versions.contains(where: { $0.media.categoryName == filter.source }),
-        filter.minimumRating == 0 || (title.metadata?.rating ?? 0) >= filter.minimumRating,
-        !filter.hideWatched || !personal.watched.contains(title.id)
-      else { continue }
-      result.filtered.append(title)
-      if title.kind == .movie && (title.metadata?.voteCount ?? 0) >= 20 {
-        result.movies.append(title)
-      }
-      if title.kind == .series && !personal.watched.contains(title.id) {
-        result.series.append(title)
-      }
-      if title.latestReleaseDate != nil { result.latest.append(title) }
-      if personal.watchlist.contains(title.id) { result.watchlist.append(title) }
-    }
-    func score(_ title: EntertainmentTitle) -> Double {
-      guard let metadata = title.metadata else { return 0 }
-      let votes = Double(metadata.voteCount)
-      return (votes * metadata.rating + 50 * 6.5) / (votes + 50)
-    }
-    result.movies.sort { score($0) > score($1) }
-    result.series.sort { score($0) > score($1) }
-    result.latest.sort { ($0.latestReleaseDate ?? "") > ($1.latestReleaseDate ?? "") }
-    result.recent = result.filtered.sorted { $0.latestDiscovered > $1.latestDiscovered }
-    result.genres = genres.sorted()
-    result.languages = languages.sorted()
-    result.years = years.sorted(by: >)
-    result.sources = sources.sorted()
-    result.shelves = HomeShelfBuilder.shelves(
-      from: result.filtered, preferences: personal.homeCategories ?? HomeCategoryPreferences())
-    return result
+    let prepared = index(for: catalogue)
+    try Task.checkCancellation()
+    return HomeFilterEngine.project(
+      catalogue: catalogue, index: prepared, personal: personal, filter: filter)
   }
 }
 

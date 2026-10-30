@@ -9,9 +9,17 @@ enum HomeCategoryBuilder {
   static func categories(
     for titles: [EntertainmentTitle], movies: [String: MovieMetadata] = [:]
   ) -> [HomeCategory] {
+    categories(
+      for: titles,
+      assignments: titles.map { HomeCategoryClassifier.classify($0, movie: movies[$0.id]) })
+  }
+
+  /// Same shelves from assignments that were already classified, for example in parallel.
+  static func categories(
+    for titles: [EntertainmentTitle], assignments: [HomeCategoryAssignment]
+  ) -> [HomeCategory] {
     var buckets: [HomeCategoryKind: [Int]] = [:]
-    for (index, title) in titles.enumerated() {
-      let assignment = HomeCategoryClassifier.classify(title, movie: movies[title.id])
+    for (index, assignment) in assignments.enumerated() {
       if let primary = assignment.primary { buckets[primary, default: []].append(index) }
       for shelf in assignment.genreShelves { buckets[shelf, default: []].append(index) }
     }

@@ -146,6 +146,11 @@ actor LibraryIndex {
       throw LibraryIndexError.database("Could not migrate folder snapshots.")
     }
     guard searchable else { return }
+    // Additive tables and triggers only: the schema version is unchanged, so an older Myra still
+    // opens this database after a rollback and ignores the compact catalogue.
+    guard sqlite3_exec(connection.handle, Self.catalogueSchema, nil, nil, nil) == SQLITE_OK else {
+      throw LibraryIndexError.database("Could not create the compact catalogue.")
+    }
     var searchStatement: OpaquePointer?
     sqlite3_prepare_v2(
       connection.handle, "SELECT 1 FROM sqlite_master WHERE name='search_documents'", -1,
@@ -205,6 +210,25 @@ actor LibraryIndex {
       _ = sqlite3_exec(
         connection.handle,
         "INSERT INTO video_fts(video_fts) VALUES('rebuild');", nil, nil, nil)
+    }
+  }
+
+  /// A consistent copy including committed WAL pages, made with SQLite's backup API.
+  func backup(to destination: URL) throws {
+    var target: OpaquePointer?
+    guard sqlite3_open(destination.path, &target) == SQLITE_OK, let target else {
+      if let target { sqlite3_close(target) }
+      throw LibraryIndexError.database("Could not create the backup file.")
+    }
+    defer { sqlite3_close(target) }
+    guard let copy = sqlite3_backup_init(target, "main", connection.handle, "main") else {
+      throw LibraryIndexError.database("Could not initialise the backup.")
+    }
+    let result = sqlite3_backup_step(copy, -1)
+    let finished = sqlite3_backup_finish(copy)
+    guard result == SQLITE_DONE, finished == SQLITE_OK else {
+      try? FileManager.default.removeItem(at: destination)
+      throw LibraryIndexError.database("The backup did not complete.")
     }
   }
 
@@ -778,7 +802,7 @@ actor LibraryIndex {
   }
 
   /// Indexes changed filenames once; query-time work never rereads the full catalogue.
-  private func buildPendingSearchDocuments() throws {
+  func buildPendingSearchDocuments() throws {
     try transaction {
       while true {
         let pending = try prepare(
@@ -944,6 +968,8 @@ actor LibraryIndex {
     sqlite3_bind_double(statement, 3, Date.now.timeIntervalSince1970)
     try stepDone(statement)
     try execute("UPDATE index_state SET revision=revision+1 WHERE id=1")
+    // The compact catalogue mirrors the cache for titles, so a saved lookup is visible at once.
+    try? applyMetadataToCatalogue(key: key, payload: payload)
   }
 
   func savePlaybackPosition(url: URL, seconds: Double, duration: Double) throws {
@@ -1021,6 +1047,8 @@ actor LibraryIndex {
     guard let value = sqlite3_column_text(statement, column) else { return "" }
     return String(cString: value)
   }
+  /// Rows touched by the most recent statement.
+  func changedRows() -> Int { Int(sqlite3_changes(connection.handle)) }
   func databaseError() -> LibraryIndexError {
     .database(String(cString: sqlite3_errmsg(connection.handle)))
   }

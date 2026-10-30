@@ -25,6 +25,8 @@ import Foundation
   @Published private(set) var partialSummary = ""
   /// Overall on-device budget, covering intent, answer, one retry and the fallback decision.
   var onDeviceTimeout: Duration = .seconds(20)
+  /// Each cloud request (intent or answer) must finish within this budget; the failure is explicit.
+  var cloudTimeout: Duration = .seconds(20)
   private let defaults: UserDefaults
   private let transport: any MyraAITransport
   private var task: Task<MyraAIResponse, Error>?
@@ -58,6 +60,10 @@ import Foundation
     case .disabled: status = "AI disabled. Search, random picks, and playback remain available."
     }
   }
+  /// A Keychain read can wait on a permission prompt, so it never runs on the main actor.
+  nonisolated private static func readKey(_ provider: MyraAIProvider) async throws -> String {
+    try await Task.detached(priority: .userInitiated) { try MyraAIKeyStore.read(provider) }.value
+  }
   func saveKey(_ value: String) throws {
     try MyraAIKeyStore.save(value, provider: settings.provider)
     clearCache()
@@ -68,7 +74,7 @@ import Foundation
   func refreshModels() async {
     let provider = settings.provider
     do {
-      let key = provider.isCloud ? try MyraAIKeyStore.read(provider) : ""
+      let key = provider.isCloud ? try await Self.readKey(provider) : ""
       let values = try await transport.models(provider: provider, key: key)
       guard settings.provider == provider else { return }
       models = values
@@ -139,7 +145,7 @@ import Foundation
       guard !titles.isEmpty || feature == .preferences else {
         throw MyraAIError.missingContext("Index your library before requesting suggestions.")
       }
-      let key = config.provider.isCloud ? try MyraAIKeyStore.read(config.provider) : ""
+      let key = config.provider.isCloud ? try await Self.readKey(config.provider) : ""
       let cacheKey =
         "\(config.provider.rawValue)|\(config.model)|\(feature.rawValue)|\(revision)|\(safePrompt)|\(selectedIDs.sorted())|\(recapVersionID ?? "")|\(subtitleText?.hashValue ?? 0)|\(config.feedback)"
       if let cached = cache[cacheKey] {
@@ -251,14 +257,14 @@ import Foundation
       // A recommendation answer without picks falls back to the fixed rules when they find any;
       // otherwise the model's own answer stands.
       if job.feature.isRecommendation, answer.recommendations.isEmpty,
-        let fallback = try? fallbackResponse(job, reason: MyraAIError.noPicks)
+        let fallback = try? await fallbackResponse(job, reason: MyraAIError.noPicks)
       {
         return fallback
       }
       return answer
     } catch {
       guard job.feature.isRecommendation, Self.canFallBack(after: error) else { throw error }
-      return try fallbackResponse(job, reason: error)
+      return try await fallbackResponse(job, reason: error)
     }
   }
 
@@ -274,7 +280,8 @@ import Foundation
   /// Local rules answer most requests. The model is asked only when the rules are not confident.
   private func resolveOnDeviceIntent(_ job: Job) async throws -> MyraSearchIntent? {
     guard job.feature.usesLocalIntent else { return nil }
-    let local = Self.localIntent(job)
+    // The catalogue vocabulary is built from every title; never on the main actor.
+    let local = await Task.detached(priority: .userInitiated) { Self.localIntent(job) }.value
     guard !local.isConfident else { return local.intent }
     do {
       return try await requestIntent(job).filled(from: local.intent)
@@ -287,7 +294,7 @@ import Foundation
     }
   }
 
-  private static func localIntent(_ job: Job) -> MyraIntentParse {
+  nonisolated private static func localIntent(_ job: Job) -> MyraIntentParse {
     let genres = Array(Set(job.titles.flatMap { $0.metadata?.genres ?? [] }))
     let words = Set(
       job.titles.flatMap { title in
@@ -300,7 +307,7 @@ import Foundation
 
   private func requestIntent(_ job: Job) async throws -> MyraSearchIntent {
     try consumeRequest()
-    let raw = try await transport.generate(
+    let raw = try await generate(
       MyraAIRequest(
         provider: job.config.provider, model: job.config.model, key: job.key,
         instructions: Self.intentInstructions,
@@ -339,7 +346,7 @@ import Foundation
     } else {
       onPartial = nil
     }
-    let raw = try await transport.generate(
+    let raw = try await generate(
       MyraAIRequest(
         provider: config.provider, model: config.model, key: job.key,
         instructions: Self.responseInstructions, prompt: context.prompt,
@@ -370,11 +377,13 @@ import Foundation
     return true
   }
 
-  private func fallbackResponse(_ job: Job, reason: Error) throws -> MyraAIResponse {
-    let local = Self.localIntent(job).intent
-    let output = try MyraFallbackRecommender.recommend(
-      feature: job.feature, prompt: job.prompt, titles: job.titles, personal: job.personal,
-      intent: local, selectedIDs: job.selectedIDs, language: job.config.language)
+  private func fallbackResponse(_ job: Job, reason: Error) async throws -> MyraAIResponse {
+    let output = try await Task.detached(priority: .userInitiated) {
+      try MyraFallbackRecommender.recommend(
+        feature: job.feature, prompt: job.prompt, titles: job.titles, personal: job.personal,
+        intent: Self.localIntent(job).intent, selectedIDs: job.selectedIDs,
+        language: job.config.language)
+    }.value
     guard !output.recommendations.isEmpty else { throw reason }
     let cause = (reason as? LocalizedError)?.errorDescription ?? reason.localizedDescription
     return MyraAIResponse(
@@ -385,9 +394,20 @@ import Foundation
       path: .deterministicFallback, pathReason: cause)
   }
 
+  /// One model request. Cloud requests get the cloud budget; on-device requests are bounded by
+  /// the overall on-device budget instead.
+  private func generate(_ request: MyraAIRequest) async throws -> String {
+    guard request.provider.isCloud else { return try await transport.generate(request) }
+    let transport = self.transport
+    return try await withOnDeviceTimeout(cloudTimeout, expiry: .cloudTimedOut) {
+      try await transport.generate(request)
+    }
+  }
+
   /// Races the on-device pipeline against the overall budget. Losing work is cancelled.
   private func withOnDeviceTimeout<T: Sendable>(
-    _ limit: Duration, _ operation: @escaping @MainActor @Sendable () async throws -> T
+    _ limit: Duration, expiry: MyraAIError = .timedOut,
+    _ operation: @escaping @MainActor @Sendable () async throws -> T
   ) async throws -> T {
     try await withThrowingTaskGroup(of: TimedOutcome<T>.self) { group in
       group.addTask { .value(try await operation()) }
@@ -403,7 +423,7 @@ import Foundation
       group.cancelAll()
       switch first {
       case .value(let value): return value
-      case .expired: throw MyraAIError.timedOut
+      case .expired: throw expiry
       case .cancelled: throw CancellationError()
       }
     }

@@ -71,18 +71,35 @@ struct MediaIdentity: Equatable, Sendable {
       separator: "|")
   }
 
+  // Compiled once: parsing runs for every file when a catalogue is built.
+  private static let episodeExpression = try! NSRegularExpression(
+    pattern: "\\bS(\\d{1,2})E(\\d{1,3})\\b", options: [.caseInsensitive])
+  private static let yearExpression = try! NSRegularExpression(pattern: "\\b(?:19|20)\\d{2}\\b")
+  private static let releaseExpression = try! NSRegularExpression(
+    pattern:
+      "\\b(?:2160p|1080p|720p|480p|4k|bluray|blu-ray|webrip|web-dl|hdtv|dvdrip|x264|x265|h264|h265)\\b",
+    options: [.caseInsensitive])
+
+  private static func firstMatch(_ expression: NSRegularExpression, in text: String) -> Range<
+    String.Index
+  >? {
+    expression.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)).flatMap {
+      Range($0.range, in: text)
+    }
+  }
+
   static func parse(filename: String) -> MediaIdentity {
     var name = (filename as NSString).deletingPathExtension
       .replacingOccurrences(of: ".", with: " ").replacingOccurrences(of: "_", with: " ")
     var identity = MediaIdentity(title: name)
-    if let match = name.range(of: "(?i)\\bS(\\d{1,2})E(\\d{1,3})\\b", options: .regularExpression) {
+    if let match = firstMatch(episodeExpression, in: name) {
       let episodeToken = String(name[match])
       let parts = episodeToken.uppercased().dropFirst().split(separator: "E")
       identity.season = parts.first.flatMap { Int($0) }.map(String.init)
       identity.episode = parts.last.flatMap { Int($0) }.map(String.init)
       name = String(name[..<match.lowerBound])
     }
-    if let match = name.range(of: "\\b(?:19|20)\\d{2}\\b", options: .regularExpression),
+    if let match = firstMatch(yearExpression, in: name),
       !name[..<match.lowerBound].trimmingCharacters(
         in: .whitespacesAndNewlines.union(.punctuationCharacters)
       ).isEmpty
@@ -90,11 +107,7 @@ struct MediaIdentity: Equatable, Sendable {
       identity.year = String(name[match])
       name = String(name[..<match.lowerBound])
     }
-    if let match = name.range(
-      of:
-        "(?i)\\b(?:2160p|1080p|720p|480p|4k|bluray|blu-ray|webrip|web-dl|hdtv|dvdrip|x264|x265|h264|h265)\\b",
-      options: .regularExpression)
-    {
+    if let match = firstMatch(releaseExpression, in: name) {
       name = String(name[..<match.lowerBound])
     }
     identity.title = name.trimmingCharacters(

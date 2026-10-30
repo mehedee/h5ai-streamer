@@ -93,14 +93,16 @@ final class MyraAIRedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Se
 }
 
 actor MyraAIProviderClient: MyraAITransport {
+  /// Seconds a cloud request may take before it fails with a clear message.
+  static let requestTimeout: TimeInterval = 20
   private let session: URLSession
   init(session: URLSession? = nil) {
     if let session {
       self.session = session
     } else {
       let configuration = URLSessionConfiguration.ephemeral
-      configuration.timeoutIntervalForRequest = 60
-      configuration.timeoutIntervalForResource = 90
+      configuration.timeoutIntervalForRequest = Self.requestTimeout
+      configuration.timeoutIntervalForResource = Self.requestTimeout
       configuration.httpShouldSetCookies = false
       configuration.urlCache = nil
       self.session = URLSession(
@@ -231,17 +233,19 @@ actor MyraAIProviderClient: MyraAITransport {
       request.httpMethod = "POST"
       request.httpBody = try JSONSerialization.data(withJSONObject: body)
     }
-    let (bytes, response) = try await session.bytes(for: request)
+    request.timeoutInterval = Self.requestTimeout
+    let data: Data
+    let response: URLResponse
+    do {
+      (data, response) = try await session.data(for: request)
+    } catch let error as URLError where error.code == .timedOut {
+      throw MyraAIError.cloudTimedOut
+    }
     guard let http = response as? HTTPURLResponse, http.url == request.url else {
       throw MyraAIError.invalidResponse
     }
     guard (200..<300).contains(http.statusCode) else { throw MyraAIError.http(http.statusCode) }
-    var data = Data()
-    for try await byte in bytes {
-      try Task.checkCancellation()
-      guard data.count < 2_000_000 else { throw MyraAIError.invalidResponse }
-      data.append(byte)
-    }
+    guard data.count <= 2_000_000 else { throw MyraAIError.invalidResponse }
     guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
       throw MyraAIError.invalidResponse
     }

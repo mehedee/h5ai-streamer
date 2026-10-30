@@ -34,6 +34,14 @@ final class EntertainmentStore: ObservableObject {
     didSet { projectionRevision &+= 1 }
   }
   @Published private(set) var isEnriching = false
+  /// True until the first catalogue has been read or built after launch. Pages show a skeleton, not
+  /// an empty state, while it is true.
+  @Published private(set) var isPreparingCatalogue = true
+  /// The Home projection for the unfiltered view, prepared off the main thread and kept for the
+  /// life of the store. Home reads it synchronously, so returning to Home never shows an empty page.
+  private(set) var preparedProjection = HomeCatalogueProjection()
+  /// How the current catalogue was obtained (saved, incremental, built), for diagnostics.
+  private(set) var catalogueRoute: CatalogueRoute?
   @Published var errorMessage: String?
   private let library: LibraryController
   private let url: URL?
@@ -176,12 +184,25 @@ final class EntertainmentStore: ObservableObject {
           }
         }
         enrichmentIDs = prepared.enrichmentIDs
-        rebuildHomeCategories(from: values)
+        catalogueRoute = prepared.route
+        // Shelves, traits, sort orders and facets are derived off the main actor, once per catalogue.
+        let renderMark = MyraPerformance.begin(PerfMark.homeRender)
+        let projection = try await HomeProjectionWorker.shared.prepare(
+          values, personal: personal, filter: Self.defaultFilter)
+        let home = await HomeProjectionWorker.shared.index(for: values)
+        renderMark.end("\(values.count) titles, \(home.categories.count) shelves")
+        if reloadAgain { continue }
+        installHome(shelves: home.categories)
+        preparedProjection = projection
         catalogue = values
-        Task(priority: .utility) { try? await index.saveSearchAliases(values) }
+        isPreparingCatalogue = false
+        // Title aliases for search are brought up to date in one set-based pass, and only when the
+        // catalogue actually changed.
+        Task(priority: .utility) { try? await index.syncSearchAliasesIfNeeded() }
         discoverEpisodes()
       } catch { errorMessage = error.localizedDescription }
     } while reloadAgain
+    isPreparingCatalogue = false
     loading = false
     let waiters = reloadWaiters
     reloadWaiters.removeAll()
@@ -209,6 +230,10 @@ final class EntertainmentStore: ObservableObject {
       // A bounded batch avoids hammering providers when a large source is first indexed.
       let targets = Array(catalogue.filter { enrichmentIDs.contains($0.id) }.prefix(50))
       var uncertain = 0
+      var enriched = 0
+      defer {
+        if enriched > 0 { Task { await refreshPreparedProjection() } }
+      }
       for target in targets {
         while library.isRefreshing {
           try Task.checkCancellation()
@@ -223,6 +248,8 @@ final class EntertainmentStore: ObservableObject {
             catalogue[offset].metadata = metadata
             try await index.saveSearchAliases([catalogue[offset]])
           }
+          try? await index.updateCatalogueMetadata(titleID: target.id, metadata: metadata)
+          enriched += 1
           enrichmentIDs.remove(target.id)
         } catch DiscoveryError.ambiguous {
           uncertain += 1
@@ -230,6 +257,7 @@ final class EntertainmentStore: ObservableObject {
           try await index.saveMetadata(
             key: "tmdb-attempt|" + target.metadataCacheKey(providerID: correction?.providerID),
             payload: "ambiguous")
+          try? await index.markCatalogueAttempt(titleID: target.id)
           enrichmentIDs.remove(target.id)
         }
       }
@@ -259,11 +287,43 @@ final class EntertainmentStore: ObservableObject {
   /// Rebuilds the automatic shelves after a library refresh and makes sure the preferences record exists.
   func rebuildHomeCategories(from titles: [EntertainmentTitle]) {
     let mark = MyraPerformance.begin(PerfMark.homeRender)
-    homeShelves = HomeCategoryBuilder.categories(for: titles)
+    installHome(shelves: HomeCategoryBuilder.categories(for: titles))
     mark.end("shelves \(homeShelves.count) of \(titles.count) titles")
+  }
+
+  private func installHome(shelves: [HomeCategory]) {
+    homeShelves = shelves
     if !homeShelves.isEmpty { MyraPerformance.noteFirstHomeShelf() }
     if canWrite, personal.homeCategories == nil {
       mutate { $0.homeCategories = HomeCategoryPreferences() }
+    }
+  }
+
+  static let defaultFilter = HomeCatalogueFilter(
+    query: "", genre: "", language: "", year: "", source: "", minimumRating: 0, hideWatched: false,
+    revision: 0)
+
+  /// Filter option lists with counts, from the same unified list the Home shelves use. Titles
+  /// without metadata are classified from their folders and file names. With a filter, each list
+  /// counts what the other active filters leave visible.
+  func facetOptions(filter: HomeCatalogueFilter = EntertainmentStore.defaultFilter) async
+    -> CatalogueFacets
+  {
+    let values = catalogue
+    let current = personal
+    let worker = HomeProjectionWorker.shared
+    let index = await worker.index(for: values)
+    return HomeFilterEngine.facetOptions(
+      index: index, catalogue: values, personal: current, filter: filter)
+  }
+
+  /// Re-derives the kept projection after metadata arrived, so the next Home visit starts current.
+  private func refreshPreparedProjection() async {
+    let values = catalogue
+    if let projection = try? await HomeProjectionWorker.shared.prepare(
+      values, personal: personal, filter: Self.defaultFilter)
+    {
+      preparedProjection = projection
     }
   }
 
@@ -710,173 +770,5 @@ final class EntertainmentStore: ObservableObject {
         UNUserNotificationCenter.current().add(request)
       }
     }
-  }
-}
-
-actor EntertainmentCatalogueWorker {
-  // Store each source once rather than repeating its name/root in every media version.
-  private struct CachedVersion: Codable {
-    let source: String
-    let url: URL
-    let name: String
-    let relativePath: String
-    let artwork: URL?
-    let size: Int64?
-    let modified: Date?
-    let discovered: Date
-    let season: Int?
-    let episode: Int?
-    let progress: Double
-    let duration: Double
-    let lastPlayed: Date?
-    init(_ version: EntertainmentVersion) {
-      let media = version.media
-      source = media.categoryID.uuidString
-      url = media.entry.url
-      name = media.entry.name
-      relativePath = media.relativePath
-      artwork = media.artworkURL
-      size = media.entry.size
-      modified = media.entry.modifiedAt
-      discovered = version.firstDiscovered
-      season = version.season
-      episode = version.episode
-      progress = version.progressSeconds
-      duration = version.duration
-      lastPlayed = version.lastPlayed
-    }
-    func restore(sources: [String: GlobalSearchRoot]) throws -> EntertainmentVersion {
-      guard let root = sources[source] else {
-        throw LibraryIndexError.database("Incomplete Home snapshot")
-      }
-      let media = GlobalSearchResult(
-        categoryID: root.id, categoryName: root.name, categoryRoot: root.url,
-        entry: DirectoryEntry(name: name, url: url, kind: .file, size: size, modifiedAt: modified),
-        relativePath: relativePath, artworkURL: artwork)
-      return EntertainmentVersion(
-        media: media, firstDiscovered: discovered, progressSeconds: progress,
-        duration: duration, lastPlayed: lastPlayed, season: season, episode: episode)
-    }
-  }
-  private struct CachedTitle: Codable {
-    let id: String
-    let name: String
-    let year: String?
-    let kind: EntertainmentKind
-    let metadata: EntertainmentMetadata?
-    let versions: [CachedVersion]
-    init(_ title: EntertainmentTitle) {
-      id = title.id
-      name = title.name
-      year = title.year
-      kind = title.kind
-      metadata = title.metadata
-      versions = title.versions.map(CachedVersion.init)
-    }
-    func restore(sources: [String: GlobalSearchRoot]) throws -> EntertainmentTitle {
-      EntertainmentTitle(
-        id: id, name: name, year: year, kind: kind,
-        versions: try versions.map { try $0.restore(sources: sources) }, metadata: metadata)
-    }
-  }
-  private struct Snapshot: Codable {
-    var format = 2
-    let revision: Int
-    let corrections: Data
-    let sources: [String: GlobalSearchRoot]
-    let titles: [CachedTitle]
-    let enrichmentIDs: Set<String>
-    let saved: Date
-  }
-  struct Prepared: Sendable {
-    var titles: [EntertainmentTitle]
-    let enrichmentIDs: Set<String>
-    let metadataQueryCount: Int
-  }
-  func prepare(index: LibraryIndex, personal: EntertainmentPersonalData) async throws -> Prepared {
-    let started = Date.now
-    let prepareMark = MyraPerformance.begin(PerfMark.cataloguePrepare)
-    defer { prepareMark.end() }
-    let revision = try await index.revision()
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.sortedKeys]
-    let corrections = try encoder.encode(personal.matchCorrections)
-    let cacheURL = index.url.appendingPathExtension("home-cache")
-    var savedTitles: [EntertainmentTitle]?
-    let loadMark = MyraPerformance.begin(PerfMark.homeCacheLoad)
-    if let data = try? Data(contentsOf: cacheURL),
-      let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data), snapshot.format == 2,
-      snapshot.revision == revision, snapshot.corrections == corrections,
-      let restored = try? snapshot.titles.map({ try $0.restore(sources: snapshot.sources) })
-    {
-      loadMark.end("hit \(restored.count) titles")
-      if Date.now.timeIntervalSince(snapshot.saved) < 86400 {
-        return Prepared(
-          titles: restored,
-          enrichmentIDs: snapshot.enrichmentIDs, metadataQueryCount: 0)
-      }
-      savedTitles = restored
-    } else {
-      loadMark.end("miss")
-    }
-    var titles: [EntertainmentTitle]
-    if let savedTitles {
-      titles = savedTitles
-    } else {
-      let versions = try await index.inventory()
-      titles = EntertainmentGrouping.group(versions, corrections: personal.matchCorrections)
-    }
-    var enrichmentIDs: Set<String> = []
-    var queryCount = 0
-    for start in stride(from: 0, to: titles.count, by: 200) {
-      try Task.checkCancellation()
-      let end = min(start + 200, titles.count)
-      var keys: [String] = []
-      for offset in start..<end {
-        let title = titles[offset]
-        let correction = title.versions.first.flatMap { personal.matchCorrections[$0.id] }
-        let key = title.metadataCacheKey(providerID: correction?.providerID)
-        keys += [
-          key, "tmdb-base|\(title.id)|\(correction?.providerID ?? 0)", "tmdb-attempt|\(key)",
-        ]
-      }
-      let records = try await index.metadataRecords(keys: keys)
-      queryCount += 1
-      for offset in start..<end {
-        let title = titles[offset]
-        let correction = title.versions.first.flatMap { personal.matchCorrections[$0.id] }
-        let key = title.metadataCacheKey(providerID: correction?.providerID)
-        if let cached = records[key]
-          ?? records["tmdb-base|\(title.id)|\(correction?.providerID ?? 0)"]
-        {
-          titles[offset].metadata = try? JSONDecoder().decode(
-            EntertainmentMetadata.self, from: Data(cached.payload.utf8))
-        }
-        if records[key]?.isFresh() != true && records["tmdb-attempt|\(key)"]?.isFresh() != true {
-          enrichmentIDs.insert(title.id)
-        }
-      }
-      await Task.yield()
-    }
-    Logger(subsystem: "Myra", category: "Catalogue").info(
-      "Prepared \(titles.count) titles with \(queryCount) metadata queries in \(Date.now.timeIntervalSince(started)) seconds"
-    )
-    if try await index.revision() == revision {
-      var sources: [String: GlobalSearchRoot] = [:]
-      for title in titles {
-        for version in title.versions {
-          let media = version.media
-          sources[media.categoryID.uuidString] = GlobalSearchRoot(
-            id: media.categoryID, name: media.categoryName, url: media.categoryRoot)
-        }
-      }
-      let snapshot = Snapshot(
-        revision: revision, corrections: corrections, sources: sources,
-        titles: titles.map(CachedTitle.init), enrichmentIDs: enrichmentIDs, saved: .now)
-      if let data = try? JSONEncoder().encode(snapshot) {
-        try? data.write(to: cacheURL, options: .atomic)
-      }
-    }
-    return Prepared(titles: titles, enrichmentIDs: enrichmentIDs, metadataQueryCount: queryCount)
   }
 }
