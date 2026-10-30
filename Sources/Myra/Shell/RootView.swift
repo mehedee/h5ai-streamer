@@ -6,6 +6,7 @@ import SwiftUI
 enum AppSection: String, CaseIterable, Identifiable {
   case home
   case watchlist
+  case insights
   case sources
   case downloads
   case transfers
@@ -16,6 +17,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     switch self {
     case .home: "Home"
     case .watchlist: "Watchlist"
+    case .insights: "Insights"
     case .sources: "Sources"
     case .downloads: "Downloads"
     case .transfers: "Transfers"
@@ -26,6 +28,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     switch self {
     case .home: "house"
     case .watchlist: "bookmark"
+    case .insights: "chart.bar"
     case .sources: "server.rack"
     case .downloads: "arrow.down.circle"
     case .transfers: "arrow.left.arrow.right"
@@ -37,6 +40,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     switch self {
     case .home: "Search or ask Myra"
     case .watchlist: "Search watchlist"
+    case .insights: "Search titles"
     case .sources: "Search sources"
     case .downloads: "Search downloads"
     case .transfers: "Search torrents"
@@ -234,6 +238,8 @@ struct RootView: View {
       }
     case .watchlist:
       WatchlistPage(coordinator: coordinator, store: coordinator.entertainment)
+    case .insights:
+      InsightsPage(store: coordinator.entertainment)
     case .sources:
       LibraryPlayerContainer(coordinator: coordinator)
     case .downloads:
@@ -308,6 +314,8 @@ struct RootView: View {
       ToolbarPill {
         commandButton("Pick from Watchlist", systemImage: "dice", .pickSomething)
       }
+    case .insights:
+      EmptyView()
     case .sources:
       ToolbarPill {
         commandButton("Refresh", systemImage: "arrow.clockwise", .refreshLibrary)
@@ -339,6 +347,7 @@ struct RootView: View {
     switch command {
     case .showHome: show(.home)
     case .showWatchlist: show(.watchlist)
+    case .showInsights: show(.insights)
     case .showSources: show(.sources)
     case .showDownloads: show(.downloads)
     case .showTransfers: show(.transfers)
@@ -444,6 +453,7 @@ private struct ShellSidebar: View {
         .watchlist,
         badge: WatchlistStore.badgeCount(
           in: entertainment.catalogue, saved: entertainment.personal.watchlist))
+      navItem(.insights, badge: 0)
       groupLabel("Library")
       navItem(.sources, badge: coordinator.categories.count)
       navItem(.downloads, badge: ShellBadges.downloads(coordinator.batches))
