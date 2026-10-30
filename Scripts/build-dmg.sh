@@ -33,7 +33,10 @@ mkdir -p "$APP_PATH/Contents/Resources/Licenses"
 cp "$PROJECT_ROOT/Vendor/COPYING.txt" "$APP_PATH/Contents/Resources/Licenses/VLCKit-LGPL-2.1.txt"
 cp "$BUILD_ROOT/DerivedData/SourcePackages/artifacts/sparkle/Sparkle/LICENSE" "$APP_PATH/Contents/Resources/Licenses/Sparkle.txt"
 
-codesign --force --deep --sign - "$APP_PATH"
+SIGN_IDENTITY="${MYRA_SIGN_IDENTITY:--}"
+SIGN_FLAGS=()
+[[ "$SIGN_IDENTITY" == "-" ]] || SIGN_FLAGS=(--options runtime --timestamp)
+codesign --force --deep "${SIGN_FLAGS[@]}" --sign "$SIGN_IDENTITY" "$APP_PATH"
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 ditto "$APP_PATH" "$STAGE_DIR/Myra.app"
 ln -s /Applications "$STAGE_DIR/Applications"
