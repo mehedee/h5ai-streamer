@@ -34,6 +34,9 @@ enum EnglishTrackPreference {
 struct PlayerChapter: Identifiable, Equatable {
   let id: Int32
   let name: String
+  /// Chapter timing from VLC's chapter descriptions, in seconds. Nil when VLC does not report it.
+  var startSeconds: Double?
+  var durationSeconds: Double?
 }
 
 struct PlaybackBufferingState {
@@ -91,7 +94,12 @@ final class EmbeddedPlayerModel: ObservableObject {
   @Published var isMuted = false
   @Published var speed: Float = 1
   @Published var audioDelay: Double = 0
-  @Published var subtitleDelay: Double = 0
+  /// Subtitle timing for the current title, in milliseconds. Remembered through `personalState`.
+  @Published private(set) var subtitleSyncMilliseconds = 0
+  /// Floating Picture in Picture panel. While set, VLC draws into the panel instead of the window.
+  @Published private(set) var pictureInPicture = false
+  private var pip: PlayerPictureInPictureWindow?
+  private var returnObserver: NSObjectProtocol?
   @Published var repeatEnabled = false
   @Published var isScrubbing = false
   @Published var scrubPosition: Double = 0
@@ -139,6 +147,18 @@ final class EmbeddedPlayerModel: ObservableObject {
   var onNotice: ((String) -> Void)?
   var playbackWindow: NSWindow? { window }
 
+  init() {
+    // The Transfers page's "Return to Player" posts this notification; it lives outside the player.
+    returnObserver = NotificationCenter.default.addObserver(
+      forName: .myraReturnToPlayer, object: nil, queue: .main
+    ) { [weak self] _ in
+      MainActor.assumeIsolated { self?.returnToPlayer() }
+    }
+  }
+
+  /// The player fills the main window only while it is not floating in Picture in Picture.
+  var showsPlayerInWindow: Bool { media != nil && !pictureInPicture }
+
   func start(
     _ media: GlobalSearchResult, library: LibraryController,
     sequence: PlaybackSequence? = nil,
@@ -146,6 +166,8 @@ final class EmbeddedPlayerModel: ObservableObject {
     resumeSeconds: Double? = nil,
     sequenceLoader: (@Sendable () async throws -> PlaybackSequence)? = nil
   ) {
+    // A new playback request from the library or Transfers replaces a floating panel.
+    dismissPictureInPicture()
     endTask?.cancel()
     endTask = nil
     sequenceTask?.cancel()
@@ -260,6 +282,10 @@ final class EmbeddedPlayerModel: ObservableObject {
     if let range = currentMarkers.intro, range.valid(duration: duration), range.contains(elapsed) {
       return ("Skip Intro", range)
     }
+    // Chapter markers offer the same button when no intro marker is configured.
+    if let range = PlayerIntroSkip.range(in: chapters, elapsed: elapsed, duration: duration) {
+      return ("Skip Intro", range)
+    }
     if let range = currentMarkers.outro, range.valid(duration: duration), range.contains(elapsed) {
       return ("Skip Outro", range)
     }
@@ -337,8 +363,10 @@ final class EmbeddedPlayerModel: ObservableObject {
     if !automatically {
       speed = personalState.speed
       audioDelay = 0
-      subtitleDelay = 0
     }
+    // Subtitle timing belongs to the title, so it applies to every episode and version.
+    subtitleSyncMilliseconds = PlayerSubtitleSync.stored(
+      key: PlayerSubtitleSync.titleKey(filename: media.entry.name), in: personalState)
     resumePosition = nil
     automaticResumeSeconds = resumeSeconds.flatMap { $0.isFinite && $0 >= 5 ? $0 : nil }
     errorMessage = nil
@@ -380,7 +408,8 @@ final class EmbeddedPlayerModel: ObservableObject {
         self.handleCompletion(current.state)
       }
     }
-    if let videoView { engine.drawable = videoView }
+    if let drawable = pip?.videoView ?? videoView { engine.drawable = drawable }
+    engine.currentVideoSubTitleDelay = PlayerSubtitleSync.microseconds(subtitleSyncMilliseconds)
     if beginPlayback { engine.play() }
     let id = loadID
     if !automatically, resumeSeconds == nil, let library {
@@ -413,9 +442,9 @@ final class EmbeddedPlayerModel: ObservableObject {
     if engine?.drawable as AnyObject? !== view { engine?.drawable = view }
   }
   func detach(view: VLCVideoView) {
-    guard videoView === view else { return }
-    engine?.drawable = nil
-    videoView = nil
+    // While Picture in Picture owns the drawable, the window surface's teardown must not clear it.
+    if engine?.drawable as AnyObject? === view { engine?.drawable = nil }
+    if videoView === view { videoView = nil }
   }
   func setWindow(_ newWindow: NSWindow?) {
     guard window !== newWindow else { return }
@@ -618,6 +647,7 @@ final class EmbeddedPlayerModel: ObservableObject {
   }
 
   private func finishClosingPlayer() {
+    dismissPictureInPicture()
     fullscreenTimeout?.cancel()
     fullscreenTransition = false
     fullscreenExitRequested = false
@@ -686,7 +716,77 @@ final class EmbeddedPlayerModel: ObservableObject {
   func chooseChapter(_ id: Int32) { engine?.currentChapterIndex = id }
   func setDelays() {
     engine?.currentAudioPlaybackDelay = Int(audioDelay * 1_000_000)
-    engine?.currentVideoSubTitleDelay = Int(subtitleDelay * 1_000_000)
+    engine?.currentVideoSubTitleDelay = PlayerSubtitleSync.microseconds(subtitleSyncMilliseconds)
+  }
+
+  /// Sets subtitle timing and remembers it for the title. A zero offset clears the memory.
+  func setSubtitleSync(_ milliseconds: Int) {
+    subtitleSyncMilliseconds = PlayerSubtitleSync.clamped(milliseconds)
+    engine?.currentVideoSubTitleDelay = PlayerSubtitleSync.microseconds(subtitleSyncMilliseconds)
+    guard let media else { return }
+    PlayerSubtitleSync.remembered(
+      subtitleSyncMilliseconds, key: PlayerSubtitleSync.titleKey(filename: media.entry.name),
+      in: &personalState)
+    savePersonalState()
+    noteInteraction()
+  }
+  func nudgeSubtitleSync(by step: Int) {
+    setSubtitleSync(PlayerSubtitleSync.adjusted(subtitleSyncMilliseconds, by: step))
+  }
+
+  // MARK: Picture in Picture
+
+  /// Floats the video in an always-on-top panel. AVKit cannot present VLCKit output, so the
+  /// panel takes over VLC's drawable. Unavailable in full screen, where macOS owns the window.
+  func enterPictureInPicture() {
+    guard media != nil, !isFullscreen, !isClosing, pip == nil, let engine else { return }
+    let panel = PlayerPictureInPictureWindow(player: self)
+    panel.onUserClosed = { [weak self, weak panel] in
+      guard let self, let panel else { return }
+      self.pictureInPictureUserClosed(panel)
+    }
+    pip = panel
+    pictureInPicture = true
+    engine.drawable = panel.videoView
+    panel.show()
+    noteInteraction()
+  }
+
+  func togglePictureInPicture() {
+    if pictureInPicture { returnFromPictureInPicture() } else { enterPictureInPicture() }
+  }
+
+  /// Returns the video to the main window. The window surface re-attaches when it reappears.
+  func returnFromPictureInPicture() {
+    guard pip != nil else { return }
+    dismissPictureInPicture()
+    engine?.drawable = videoView
+    noteInteraction()
+  }
+
+  /// Used by the Transfers "Return to Player" action: leaves Picture in Picture and raises the window.
+  func returnToPlayer() {
+    returnFromPictureInPicture()
+    NSApp.activate(ignoringOtherApps: true)
+    playbackWindow?.makeKeyAndOrderFront(nil)
+  }
+
+  private func dismissPictureInPicture() {
+    guard let panel = pip else {
+      if pictureInPicture { pictureInPicture = false }
+      return
+    }
+    pip = nil
+    pictureInPicture = false
+    panel.close()
+  }
+
+  /// Closing the floating panel ends playback, the same as closing the player.
+  private func pictureInPictureUserClosed(_ panel: PlayerPictureInPictureWindow) {
+    guard pip === panel else { return }
+    pip = nil
+    pictureInPicture = false
+    close()
   }
   func setAspect(_ value: String?) {
     if let value {
@@ -811,12 +911,24 @@ final class EmbeddedPlayerModel: ObservableObject {
       selectedChapter = engine.currentChapterIndex
     }
     if engine.state == .playing, engine.rate != speed { engine.rate = speed }
+    if engine.isPlaying || engine.state == .paused || engine.state == .buffering {
+      // Subtitle timing is applied once the input exists, as the track choices are.
+      let delay = PlayerSubtitleSync.microseconds(subtitleSyncMilliseconds)
+      if engine.currentVideoSubTitleDelay != delay { engine.currentVideoSubTitleDelay = delay }
+    }
     let chapterInfo =
       engine.chapterDescriptions(ofTitle: engine.currentTitleIndex) as? [[String: Any]] ?? []
+    // VLC reports chapter offsets and durations in microseconds.
     let updatedChapters = chapterInfo.enumerated().map { offset, item in
       PlayerChapter(
         id: Int32(offset),
-        name: item[VLCChapterDescriptionName] as? String ?? "Chapter \(offset + 1)")
+        name: item[VLCChapterDescriptionName] as? String ?? "Chapter \(offset + 1)",
+        startSeconds: (item[VLCChapterDescriptionTimeOffset] as? NSNumber).map {
+          $0.doubleValue / 1_000_000
+        },
+        durationSeconds: (item[VLCChapterDescriptionDuration] as? NSNumber).map {
+          $0.doubleValue / 1_000_000
+        })
     }
     if chapters != updatedChapters { chapters = updatedChapters }
     if Date.now.timeIntervalSince(savedAt) > 10, elapsed > 0, engine.state != .ended {

@@ -125,18 +125,31 @@ struct PlayerOptionsMenus: NSViewRepresentable {
 
     private func delays(to menu: NSMenu, audio: Bool) {
       let sub = submenu(audio ? "Audio Synchronization" : "Subtitle Synchronization", in: menu)
+      // Subtitle timing goes through the remembered per-title setter; audio keeps its session value.
       add("Earlier by 0.1s", to: sub) { [player] in
-        if audio { player.audioDelay -= 0.1 } else { player.subtitleDelay -= 0.1 }
-        player.setDelays()
+        if audio {
+          player.audioDelay -= 0.1
+          player.setDelays()
+        } else {
+          player.nudgeSubtitleSync(by: -PlayerSubtitleSync.stepMilliseconds)
+        }
       }
       add("Later by 0.1s", to: sub) { [player] in
-        if audio { player.audioDelay += 0.1 } else { player.subtitleDelay += 0.1 }
-        player.setDelays()
+        if audio {
+          player.audioDelay += 0.1
+          player.setDelays()
+        } else {
+          player.nudgeSubtitleSync(by: PlayerSubtitleSync.stepMilliseconds)
+        }
       }
-      let delay = audio ? player.audioDelay : player.subtitleDelay
+      let delay = audio ? player.audioDelay : Double(player.subtitleSyncMilliseconds) / 1_000
       add(String(format: "Reset (%.1fs)", delay), to: sub) { [player] in
-        if audio { player.audioDelay = 0 } else { player.subtitleDelay = 0 }
-        player.setDelays()
+        if audio {
+          player.audioDelay = 0
+          player.setDelays()
+        } else {
+          player.setSubtitleSync(0)
+        }
       }
     }
 

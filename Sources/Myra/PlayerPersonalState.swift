@@ -22,6 +22,8 @@ struct PlayerPersonalState: Codable, Equatable, Sendable {
   var autoplay = true
   var automaticSkipping = false
   var markers: [String: PlayerSkipMarkers] = [:]
+  /// Subtitle timing in milliseconds, keyed by title. Optional so states saved before 4.1 still decode.
+  var subtitleSync: [String: Int]?
 
   static let defaultsKey = "Myra.playerPersonalState.v2"
   static func load(defaults: UserDefaults = .standard) -> Self {

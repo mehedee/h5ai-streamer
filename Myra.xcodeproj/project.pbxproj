@@ -88,8 +88,12 @@
 		2D8552835BD8D47A1CE9D6C5 /* PlaybackChoicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16CFF6D49AB1FD24F0234431; };
 		91FD4CA08E885B181F953318 /* PlayerPersonalState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28D79205776DF5436C5514AE; };
 		3DA07C13F59E1C0DAAD89C1F /* PlayerPersonalViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA11B2AA4467ED299CFB615F; };
+		6A1D5E0C2B7F4A9E81C30101 /* PlayerSubtitleSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1D5E0C2B7F4A9E81C30001; };
+		6A1D5E0C2B7F4A9E81C30102 /* PlayerIntroSkip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1D5E0C2B7F4A9E81C30002; };
+		6A1D5E0C2B7F4A9E81C30103 /* PlayerPictureInPicture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1D5E0C2B7F4A9E81C30003; };
 		DF40E20F2EC764D71FE531AE /* DiscoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 687A9446C2E9B6E8F637941A; };
 		431953C248E5D9A304398B3E /* PlayerV2Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D1EE3EDADD4B1FE3E7CEA02; };
+		6A1D5E0C2B7F4A9E81C30104 /* PlayerPlaybackExtrasTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1D5E0C2B7F4A9E81C30004; };
 		F20000000000000000000002 = {isa = PBXBuildFile; fileRef = F20000000000000000000001; };
 		8E77B861CEB69F248A9495D6 = {isa = PBXBuildFile; fileRef = D91ED2837EF8F9EC87BC8845; };
 		F32000000000000000000001 = {isa = PBXBuildFile; fileRef = F31000000000000000000001; };
@@ -231,8 +235,12 @@
 		16CFF6D49AB1FD24F0234431 /* PlaybackChoicesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackChoicesView.swift; sourceTree = "<group>"; };
 		28D79205776DF5436C5514AE /* PlayerPersonalState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerPersonalState.swift; sourceTree = "<group>"; };
 		EA11B2AA4467ED299CFB615F /* PlayerPersonalViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerPersonalViews.swift; sourceTree = "<group>"; };
+		6A1D5E0C2B7F4A9E81C30001 /* PlayerSubtitleSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerSubtitleSync.swift; sourceTree = "<group>"; };
+		6A1D5E0C2B7F4A9E81C30002 /* PlayerIntroSkip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerIntroSkip.swift; sourceTree = "<group>"; };
+		6A1D5E0C2B7F4A9E81C30003 /* PlayerPictureInPicture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerPictureInPicture.swift; sourceTree = "<group>"; };
 		687A9446C2E9B6E8F637941A /* DiscoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveryTests.swift; sourceTree = "<group>"; };
 		0D1EE3EDADD4B1FE3E7CEA02 /* PlayerV2Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerV2Tests.swift; sourceTree = "<group>"; };
+		6A1D5E0C2B7F4A9E81C30004 /* PlayerPlaybackExtrasTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerPlaybackExtrasTests.swift; sourceTree = "<group>"; };
 		F20000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = image.png; path = Sources/Myra/Resources/TMDB.png; sourceTree = SOURCE_ROOT; };
 		D91ED2837EF8F9EC87BC8845 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntertainmentUISnapshotTests.swift; sourceTree = "<group>"; };
 		F31000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexRefresh.swift; sourceTree = "<group>"; };
@@ -417,6 +425,9 @@
 				B00100000000000000000021,
 				28D79205776DF5436C5514AE,
 				EA11B2AA4467ED299CFB615F,
+				6A1D5E0C2B7F4A9E81C30001,
+				6A1D5E0C2B7F4A9E81C30002,
+				6A1D5E0C2B7F4A9E81C30003,
 				B00100000000000000000020,
 				B00100000000000000000006,
 				B00100000000000000000007,
@@ -457,6 +468,7 @@
 				B00200000000000000000003,
 				B00200000000000000000004,
 				0D1EE3EDADD4B1FE3E7CEA02,
+				6A1D5E0C2B7F4A9E81C30004,
 				B00200000000000000000006,
 			);
 			path = Tests/MyraTests;
@@ -644,6 +656,9 @@ F44000000000000000000001, F44000000000000000000002,
 				A00100000000000000000021,
 				91FD4CA08E885B181F953318,
 				3DA07C13F59E1C0DAAD89C1F,
+				6A1D5E0C2B7F4A9E81C30101,
+				6A1D5E0C2B7F4A9E81C30102,
+				6A1D5E0C2B7F4A9E81C30103,
 				A00100000000000000000020,
 				A00100000000000000000006,
 				A00100000000000000000007,
@@ -677,6 +692,7 @@ F44000000000000000000001, F44000000000000000000002,
 				A00200000000000000000003,
 				A00200000000000000000004,
 				431953C248E5D9A304398B3E,
+				6A1D5E0C2B7F4A9E81C30104,
 				A00200000000000000000006,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
