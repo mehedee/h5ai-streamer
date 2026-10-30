@@ -445,6 +445,81 @@ final class EntertainmentStore: ObservableObject {
     }
   }
   func deleteCollection(id: UUID) { mutate { $0.collections.removeAll { $0.id == id } } }
+
+  // MARK: - Smart collections, best version and personal restore
+
+  /// The saved smart collections, or the built-in defaults until the user first changes them.
+  var smartCollections: [SmartCollection] {
+    personal.smartCollections ?? SmartCollectionRules.defaults
+  }
+
+  /// Adds or replaces a smart collection. Returns false, and changes nothing, when it is invalid.
+  @discardableResult
+  func saveSmartCollection(_ collection: SmartCollection) -> Bool {
+    var value = collection
+    value.name = value.name.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard SmartCollectionRules.isValid(value) else {
+      errorMessage = "Give the collection a name and at least one complete rule."
+      return false
+    }
+    var saved = false
+    mutate { data in
+      var list = data.smartCollections ?? SmartCollectionRules.defaults
+      if let offset = list.firstIndex(where: { $0.id == value.id }) {
+        list[offset] = value
+      } else if list.count < SmartCollectionRules.maximumCollections {
+        list.append(value)
+      } else {
+        return
+      }
+      data.smartCollections = list
+      saved = true
+    }
+    return saved
+  }
+
+  func deleteSmartCollection(id: UUID) {
+    mutate { data in
+      data.smartCollections = (data.smartCollections ?? SmartCollectionRules.defaults)
+        .filter { $0.id != id }
+    }
+  }
+
+  func setSmartCollectionPinned(id: UUID, _ pinned: Bool) {
+    mutate { data in
+      var list = data.smartCollections ?? SmartCollectionRules.defaults
+      if let offset = list.firstIndex(where: { $0.id == id }) { list[offset].pinnedToHome = pinned }
+      data.smartCollections = list
+    }
+  }
+
+  /// The resolution a title always plays, or nil to follow the global preference again.
+  func setTitleQuality(titleID: String, quality: String?) {
+    mutate { data in
+      var map = data.titleQualities ?? [:]
+      // Assigning nil removes the title's entry.
+      map[titleID] = quality
+      data.titleQualities = map.isEmpty ? nil : map
+    }
+  }
+
+  func setPreferredQuality(_ quality: String?) {
+    mutate { $0.preferences.preferredQuality = quality }
+  }
+
+  /// Applies personal data from a backup. Playback history and newly found episodes are kept, as
+  /// they are never rolled back. Nothing else on disk changes.
+  func restorePersonalBackup(_ snapshot: EntertainmentPersonalData) throws {
+    guard canWrite, let url else { throw DiscoveryError.invalidImport("Personal data is read-only.") }
+    var updated = snapshot
+    updated.history = personal.history
+    updated.knownEpisodeIDs = personal.knownEpisodeIDs
+    try Self.validate(updated)
+    try JSONEncoder().encode(updated).write(to: url, options: .atomic)
+    let changedGrouping = updated.matchCorrections != personal.matchCorrections
+    personal = updated
+    if changedGrouping { Task { await reload() } }
+  }
   func toggleCollection(titleID: String, collectionID: UUID) {
     mutate { data in
       if let offset = data.collections.firstIndex(where: { $0.id == collectionID }) {
@@ -475,6 +550,31 @@ final class EntertainmentStore: ObservableObject {
     }
     Task { await reload() }
   }
+  /// Saves several corrections in one change and one regrouping. Each entry is a file, the title it
+  /// should join, and its year and type. Invalid entries are skipped and counted in the result.
+  @discardableResult
+  func correctMatches(
+    _ corrections: [(versionID: String, title: String, year: String?, kind: EntertainmentKind)]
+  ) -> Int {
+    var applied = 0
+    var accepted: [(String, EntertainmentMatchCorrection)] = []
+    for item in corrections {
+      let name = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !name.isEmpty, name.count <= 300,
+        item.year == nil || item.year!.range(of: "^(19|20)[0-9]{2}$", options: .regularExpression) != nil
+      else { continue }
+      accepted.append(
+        (item.versionID, EntertainmentMatchCorrection(title: name, year: item.year, kind: item.kind, providerID: nil)))
+      applied += 1
+    }
+    guard applied > 0 else { return 0 }
+    mutate { data in
+      for (versionID, correction) in accepted { data.matchCorrections[versionID] = correction }
+    }
+    Task { await reload() }
+    return applied
+  }
+
   func recordPlayback(media: GlobalSearchResult, seconds: Double, duration: Double) {
     guard shouldRecordPlayback(media) else { return }
     guard seconds.isFinite, duration.isFinite, seconds >= 0, duration >= 0 else { return }
@@ -679,7 +779,9 @@ final class EntertainmentStore: ObservableObject {
       (data.ratings ?? [:]).count <= 100_000,
       (data.ratings ?? [:]).values.allSatisfy({ (1...5).contains($0) }),
       (data.notes ?? [:]).count <= 100_000,
-      (data.notes ?? [:]).values.allSatisfy({ $0.count <= maxNoteLength })
+      (data.notes ?? [:]).values.allSatisfy({ $0.count <= maxNoteLength }),
+      (data.smartCollections ?? []).allSatisfy(SmartCollectionRules.isValid),
+      (data.smartCollections ?? []).count <= SmartCollectionRules.maximumCollections
     else { throw DiscoveryError.invalidImport("Invalid personal library data.") }
   }
   /// Applies an explicit reviewed proposal atomically, without altering media files or history.

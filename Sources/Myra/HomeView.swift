@@ -214,6 +214,14 @@ struct HomeView: View {
                 titles: filtered.filter { collection.titleIDs.contains($0.id) },
                 seeAll: { openSeeAll(.init(name: collection.name, source: .collection(collection.id))) })
             }
+            // Smart collections pinned in Collections. They update with the library.
+            ForEach(store.smartCollections.filter(\.pinnedToHome)) { collection in
+              shelf(
+                collection.name,
+                subtitle: "Smart collection · \(SmartCollectionRules.summary(collection.rules))",
+                titles: SmartCollectionRules.titles(
+                  matching: collection.rules, in: filtered, watched: store.personal.watched))
+            }
             Text(
               "Availability reflects the latest index, and a source may be offline. Metadata provided by TMDB. Myra uses the TMDB API but is not endorsed or certified by TMDB."
             )

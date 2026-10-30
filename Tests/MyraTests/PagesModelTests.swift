@@ -68,9 +68,9 @@ final class PagesModelTests: XCTestCase {
   func testSettingsTabsKeepTheApprovedOrder() {
     XCTAssertEqual(
       MyraSettingsTab.allCases.map(\.title),
-      ["General", "Library", "Downloads", "Playback", "AI", "Torrents", "Advanced"])
+      ["General", "Library", "Downloads", "Playback", "AI", "Torrents", "Data", "Advanced"])
     XCTAssertEqual(MyraSettingsTab.defaultTab, .general)
-    XCTAssertEqual(Set(MyraSettingsTab.allCases.map(\.symbol)).count, 7)
+    XCTAssertEqual(Set(MyraSettingsTab.allCases.map(\.symbol)).count, 8)
   }
 
   func testSpeedLimitAcceptsAria2Forms() {

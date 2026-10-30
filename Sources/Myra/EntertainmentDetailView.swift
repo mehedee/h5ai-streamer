@@ -426,6 +426,29 @@ struct EntertainmentVersionChooser: View {
   let choose: (EntertainmentVersion) -> Void
   @Environment(\.dismiss) private var dismiss
 
+  /// Why the best release is picked, and the title's "Always use" choice, shown above the list.
+  @ViewBuilder private var bestVersionNote: some View {
+    if let choice = BestVersionPicker.choose(
+      versions: title.versions, titleQuality: store.personal.titleQualities?[title.id],
+      preferredQuality: store.personal.preferences.preferredQuality)
+    {
+      HStack(spacing: 10) {
+        Label(choice.reason, systemImage: "sparkles")
+          .font(.callout).foregroundStyle(.secondary)
+        Spacer()
+        if store.personal.titleQualities?[title.id] != nil {
+          Button("Use my default") { store.setTitleQuality(titleID: title.id, quality: nil) }
+        }
+        let height = BestVersionPicker.height(of: choice.version)
+        if height > 0, store.personal.titleQualities?[title.id] != "\(height)p" {
+          Button("Always use \(height)p for this title") {
+            store.setTitleQuality(titleID: title.id, quality: "\(height)p")
+          }
+        }
+      }
+    }
+  }
+
   private var lastPlayed: String? {
     title.versions.max {
       (store.personal.history[$0.id]?.updated ?? .distantPast)
@@ -448,6 +471,9 @@ struct EntertainmentVersionChooser: View {
         "Availability is based on your index. Quality labels come from filenames; unknown properties are shown explicitly."
       )
       .font(.caption).foregroundStyle(.secondary)
+      if title.kind == .movie, title.versions.count > 1 {
+        bestVersionNote
+      }
       SeasonEpisodeList(
         versions: title.versions, isSeries: title.kind == .series,
         currentID: nil, lastPlayedID: lastPlayed, choose: choose)

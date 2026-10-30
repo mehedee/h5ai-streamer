@@ -9,6 +9,8 @@ enum AppSection: String, CaseIterable, Identifiable {
   case insights
   case sources
   case downloads
+  case collections
+  case attention
   case transfers
 
   var id: String { rawValue }
@@ -20,6 +22,8 @@ enum AppSection: String, CaseIterable, Identifiable {
     case .insights: "Insights"
     case .sources: "Sources"
     case .downloads: "Downloads"
+    case .collections: "Collections"
+    case .attention: "Needs Attention"
     case .transfers: "Transfers"
     }
   }
@@ -31,6 +35,8 @@ enum AppSection: String, CaseIterable, Identifiable {
     case .insights: "chart.bar"
     case .sources: "server.rack"
     case .downloads: "arrow.down.circle"
+    case .collections: "square.stack"
+    case .attention: "exclamationmark.triangle"
     case .transfers: "arrow.left.arrow.right"
     }
   }
@@ -43,6 +49,8 @@ enum AppSection: String, CaseIterable, Identifiable {
     case .insights: "Search titles"
     case .sources: "Search sources"
     case .downloads: "Search downloads"
+    case .collections: "Search collections"
+    case .attention: "Search unmatched files"
     case .transfers: "Search torrents"
     }
   }
@@ -91,6 +99,10 @@ struct RootView: View {
   @State private var section: AppSection = .home
   /// A See All grid opened from a Home shelf. It replaces Home until Back is pressed.
   @State private var seeAll: SeeAllRequest?
+  /// A header action waiting for the page that owns it (new collection, accept confident matches).
+  @State private var pageAction: ShellPageAction?
+  /// First-run setup, shown only while no library exists.
+  @State private var showingSetup = false
   @StateObject private var filters = LibraryFilterModel()
   @FocusState private var searchFocused: Bool
   @ObservedObject private var torrents: TorrentController
@@ -146,7 +158,12 @@ struct RootView: View {
     // title bar.
     .ignoresSafeArea(edges: fullscreenPlayback ? .all : .top)
     .sheet(item: $coordinator.playbackChoices) { choices in
-      PlaybackChoicesView(choices: choices, play: coordinator.playChosenVersion)
+      PlaybackChoicesView(
+        choices: choices, play: coordinator.playChosenVersion,
+        rememberQuality: { coordinator.entertainment.setTitleQuality(titleID: $0, quality: $1) })
+    }
+    .sheet(isPresented: $showingSetup) {
+      FirstRunSetupView(coordinator: coordinator, isPresented: $showingSetup)
     }
     // Torrent sheets live here so a link opened from any section still gets its sheet.
     .sheet(item: $torrents.selectingJob) { identity in
@@ -210,7 +227,15 @@ struct RootView: View {
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .task { coordinator.configure(modelContext: modelContext) }
+    .task {
+      coordinator.configure(modelContext: modelContext)
+      if SetupCheck.needsFirstRun(
+        sourceCount: coordinator.categories.count,
+        libraryFileExists: SetupCheck.libraryFileExists())
+      {
+        showingSetup = true
+      }
+    }
     .alert(
       "Myra",
       isPresented: Binding(
@@ -244,6 +269,11 @@ struct RootView: View {
       LibraryPlayerContainer(coordinator: coordinator)
     case .downloads:
       OfflineLibraryView(coordinator: coordinator)
+    case .collections:
+      CollectionsPage(
+        coordinator: coordinator, store: coordinator.entertainment, pageAction: $pageAction)
+    case .attention:
+      NeedsAttentionPage(store: coordinator.entertainment, pageAction: $pageAction)
     case .transfers:
       TorrentsView(controller: coordinator.torrents, searchText: coordinator.searchText)
     }
@@ -325,6 +355,18 @@ struct RootView: View {
       ToolbarPill {
         commandButton("Pause All", systemImage: "pause.fill", .pauseAllDownloads)
         commandButton("Clear Completed", .clearCompletedDownloads)
+      }
+    case .collections:
+      ToolbarPill {
+        ToolbarButton(title: "New Collection", systemImage: "plus", primary: true) {
+          pageAction = .newCollection
+        }
+      }
+    case .attention:
+      ToolbarPill {
+        ToolbarButton(title: "Accept All Confident", systemImage: "checkmark", primary: true) {
+          pageAction = .acceptConfident
+        }
       }
     case .transfers:
       ToolbarPill {
@@ -457,6 +499,8 @@ private struct ShellSidebar: View {
       groupLabel("Library")
       navItem(.sources, badge: coordinator.categories.count)
       navItem(.downloads, badge: ShellBadges.downloads(coordinator.batches))
+      navItem(.collections, badge: 0)
+      navItem(.attention, badge: 0)
       groupLabel("Torrents")
       navItem(.transfers, badge: ShellBadges.transfers(torrents.transferRows))
       Spacer(minLength: 12)

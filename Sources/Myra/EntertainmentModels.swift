@@ -100,6 +100,8 @@ struct EntertainmentCollection: Codable, Identifiable, Sendable {
 
 struct EntertainmentPreferences: Codable, Sendable, Equatable {
   var notifications: Bool = false
+  /// Preferred resolution for titles with several releases ("1080p"). Nil means the highest.
+  var preferredQuality: String? = nil
 }
 
 struct EntertainmentMatchCorrection: Codable, Sendable, Equatable {
@@ -133,6 +135,10 @@ struct EntertainmentPersonalData: Codable, Sendable {
   var ratings: [String: Int]? = nil
   /// Private notes keyed by title ID. Optional so older profiles still decode.
   var notes: [String: String]? = nil
+  /// Saved smart collections. Nil until the user first changes them (defaults apply).
+  var smartCollections: [SmartCollection]? = nil
+  /// "Always use for this title": title id to the resolution to play. Nil when none is set.
+  var titleQualities: [String: String]? = nil
 }
 
 struct MyraRecommendationFeedback: Codable, Sendable, Equatable {
