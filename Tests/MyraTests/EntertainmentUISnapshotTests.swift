@@ -196,7 +196,7 @@ final class EntertainmentUISnapshotTests: XCTestCase {
   }
 
   @MainActor
-  func testSettingsUsesSixNativeTabsAndPreservesSaveBehavior() async throws {
+  func testSettingsUsesSevenNativeTabsAndPreservesSaveBehavior() async throws {
     _ = NSApplication.shared
     let directory = FileManager.default.temporaryDirectory.appending(
       path: "Myra-settings-tabs-\(UUID())")
@@ -229,7 +229,7 @@ final class EntertainmentUISnapshotTests: XCTestCase {
     host.layoutSubtreeIfNeeded()
     // The Settings tab bar is the preview's icon-over-label bar (SettingsTabBar), not a native
     // segmented control, so its six tabs are checked in SettingsLayoutTests instead.
-    XCTAssertEqual(MyraSettingsTab.allCases.count, 6)
+    XCTAssertEqual(MyraSettingsTab.allCases.count, 7)
     settings.connectionsPerFile = 13
     host.layoutSubtreeIfNeeded()
     XCTAssertEqual(settings.connectionsPerFile, 13)

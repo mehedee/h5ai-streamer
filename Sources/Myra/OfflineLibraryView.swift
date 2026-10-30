@@ -61,6 +61,8 @@ struct OfflineLibraryView: View {
       switch segment {
       case .inProgress:
         DownloadsInProgressView(coordinator: coordinator, torrents: coordinator.torrents)
+      case .scheduled:
+        ScheduledDownloadsView(queue: coordinator.automaticQueue, query: coordinator.searchText)
       case .library:
         libraryContent
       }
@@ -85,6 +87,9 @@ struct OfflineLibraryView: View {
           options: [
             SegmentOption(
               value: DownloadsSegment.inProgress, title: "In Progress · \(inProgressCount)"),
+            SegmentOption(
+              value: DownloadsSegment.scheduled,
+              title: "Scheduled · \(coordinator.automaticQueue.pendingCount)"),
             SegmentOption(value: DownloadsSegment.library, title: "Library · \(titles.count)"),
           ],
           selection: $segment)

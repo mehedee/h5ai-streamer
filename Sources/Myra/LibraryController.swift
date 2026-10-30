@@ -2,6 +2,13 @@ import Combine
 import Foundation
 import OSLog
 
+/// What a finished refresh changed. Sent once per refresh that ran to the end: not for cancelled or failed runs.
+struct IndexRunOutcome: Equatable, Sendable {
+  /// True when the index revision changed, that is, titles were added, changed or removed.
+  let changed: Bool
+  let failureSummaries: [String]
+}
+
 @MainActor
 final class LibraryController: ObservableObject {
   @Published private(set) var isRefreshing = false
@@ -124,6 +131,8 @@ final class LibraryController: ObservableObject {
   private var lastProgressUpdate = Date.distantPast
   private let logger = Logger(subsystem: "Myra", category: "Indexing")
   var didUpdate: (() -> Void)?
+  /// Sends the outcome of each refresh that completed. Subscribers read it for notifications and the menu bar.
+  let runFinished = PassthroughSubject<IndexRunOutcome, Never>()
 
   /// Coalesces catalogue reloads while making chunk commits visible during long scans.
   private func notifyIndexUpdated() {
@@ -320,6 +329,7 @@ final class LibraryController: ObservableObject {
       }
       guard let self, !Task.isCancelled, refreshID == id else { return }
       var changed = false
+      var completedRun = false
       let runMark = MyraPerformance.begin(PerfMark.indexRun)
       defer { runMark.end("manual=\(manual) onlyIfDue=\(onlyIfDue)") }
       do {
@@ -410,6 +420,7 @@ final class LibraryController: ObservableObject {
         changed = try await index.revision() != previousRevision
         progress = snapshot.progress
         failures = snapshot.failures
+        completedRun = true
         lastOutcome =
           failures.isEmpty
           ? .completed
@@ -437,6 +448,10 @@ final class LibraryController: ObservableObject {
       isRefreshing = false
       refreshTask = nil
       isPaused = false
+      if completedRun {
+        runFinished.send(
+          IndexRunOutcome(changed: changed, failureSummaries: failures.map(\.summary)))
+      }
       indexing = IndexingProgress()
       await loadFolderRows()
       await loadSourceStatuses()
