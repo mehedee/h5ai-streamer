@@ -135,10 +135,10 @@ struct RootView: View {
       TranslucentSurface(role: .window)
         .ignoresSafeArea()
       shell
-        .opacity(player.media == nil ? 1 : 0)
-        .allowsHitTesting(player.media == nil)
-        .accessibilityHidden(player.media != nil)
-      if player.media != nil {
+        .opacity(player.showsPlayerInWindow ? 0 : 1)
+        .allowsHitTesting(!player.showsPlayerInWindow)
+        .accessibilityHidden(player.showsPlayerInWindow)
+      if player.showsPlayerInWindow {
         EmbeddedPlayerView(coordinator: coordinator, player: player)
       }
     }

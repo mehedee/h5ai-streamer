@@ -16,13 +16,13 @@ struct LibraryPlayerContainer: View {
   var body: some View {
     ZStack {
       LibraryView(coordinator: coordinator)
-        .opacity(player.media == nil ? 1 : 0)
-        .allowsHitTesting(player.media == nil)
-        .accessibilityHidden(player.media != nil)
+        .opacity(player.showsPlayerInWindow ? 0 : 1)
+        .allowsHitTesting(!player.showsPlayerInWindow)
+        .accessibilityHidden(player.showsPlayerInWindow)
     }
     .overlay(alignment: .trailing) {
       GeometryReader { geometry in
-        if inspector.selected != nil && player.media == nil {
+        if inspector.selected != nil && !player.showsPlayerInWindow {
           MediaInspectorView(model: inspector, library: coordinator.library, play: coordinator.play)
             .frame(width: min(460, max(0, geometry.size.width)))
             .frame(maxHeight: .infinity)
@@ -48,6 +48,7 @@ struct EmbeddedPlayerView: View {
   @State private var showEpisodeBrowser = false
   @State private var showPreferences = false
   @State private var showMarkers = false
+  @State private var showSubtitleSync = false
 
   var body: some View {
     streamObserver { stream in
@@ -333,6 +334,33 @@ struct EmbeddedPlayerView: View {
       Text("\(Int(player.volume))%")
         .font(.system(size: 11)).monospacedDigit()
         .foregroundStyle(.white.opacity(0.75)).frame(width: 30)
+      Button {
+        showSubtitleSync.toggle()
+      } label: {
+        Image(systemName: "captions.bubble")
+      }
+      .buttonStyle(PlayerGlyphStyle())
+      .help("Subtitle sync").accessibilityLabel("Subtitle sync")
+      .popover(isPresented: $showSubtitleSync) {
+        PlayerSubtitleSyncControl(player: player)
+          .padding(20)
+          .environment(\.colorScheme, .dark)
+      }
+      // Picture in Picture floats the VLC video in its own panel. AirPlay is intentionally
+      // absent: VLCKit has no AVPlayer output to route (see PlayerPictureInPictureSupport).
+      Button {
+        player.togglePictureInPicture()
+      } label: {
+        Image(systemName: "pip")
+      }
+      .buttonStyle(PlayerGlyphStyle())
+      .disabled(player.isFullscreen || player.media == nil)
+      .help(
+        player.isFullscreen
+          ? "Picture in Picture is unavailable in full screen" : "Picture in Picture"
+      )
+      .accessibilityLabel("Picture in Picture")
+      .accessibilityIdentifier("player.pictureInPicture")
       Button {
         if player.isFullscreen { player.exitFullscreen() } else { player.toggleFullscreen() }
       } label: {

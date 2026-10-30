@@ -506,7 +506,9 @@ struct TorrentConsentSheet: View {
 /// Brings the playback window forward. The player owns its window; this only locates it.
 @MainActor
 enum TorrentPlayerWindow {
+  /// The player model leaves Picture in Picture and raises its window; the window lookup is the fallback.
   static func bringToFront() {
+    NotificationCenter.default.post(name: .myraReturnToPlayer, object: nil)
     NSApp.activate(ignoringOtherApps: true)
     NSApp.windows.first { containsVideo($0.contentView) }?.makeKeyAndOrderFront(nil)
   }
