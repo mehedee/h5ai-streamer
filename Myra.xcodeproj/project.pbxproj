@@ -6,6 +6,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		D0D7FB736058B7947458674A /* CatalogueEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0346AEC6787F726AED61D477 /* CatalogueEngineTests.swift */; };
+		29FCB07C2C7205DA392F18E4 /* LibraryCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 404400CF4D7270A6AD62C650 /* LibraryCleanup.swift */; };
 		6E15CF2B49490F82C6C7D338 /* HomeCatalogueEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 617B515607CB6966B4BBD0DF /* HomeCatalogueEngine.swift */; };
 		BDD6A3CC7B188326083B83D1 /* EntertainmentCatalogue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39A0147278A9FB5973B2A364 /* EntertainmentCatalogue.swift */; };
 		A66D34A0BF2C6FB5820B78DC /* LibraryIndex+Catalogue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34871CFF4F8FA26A1B14DBCE /* LibraryIndex+Catalogue.swift */; };
@@ -143,6 +145,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		0346AEC6787F726AED61D477 /* CatalogueEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogueEngineTests.swift; sourceTree = "<group>"; };
+		404400CF4D7270A6AD62C650 /* LibraryCleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCleanup.swift; sourceTree = "<group>"; };
 		617B515607CB6966B4BBD0DF /* HomeCatalogueEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeCatalogueEngine.swift; sourceTree = "<group>"; };
 		39A0147278A9FB5973B2A364 /* EntertainmentCatalogue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntertainmentCatalogue.swift; sourceTree = "<group>"; };
 		34871CFF4F8FA26A1B14DBCE /* LibraryIndex+Catalogue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LibraryIndex+Catalogue.swift"; sourceTree = "<group>"; };
@@ -312,6 +316,7 @@
 		C01000000000000000000002 /* Myra */ = {
 			isa = PBXGroup;
 			children = (
+				404400CF4D7270A6AD62C650 /* LibraryCleanup.swift */,
 				617B515607CB6966B4BBD0DF /* HomeCatalogueEngine.swift */,
 				39A0147278A9FB5973B2A364 /* EntertainmentCatalogue.swift */,
 				34871CFF4F8FA26A1B14DBCE /* LibraryIndex+Catalogue.swift */,
@@ -419,6 +424,7 @@
 		C01000000000000000000004 /* MyraTests */ = {
 			isa = PBXGroup;
 			children = (
+				0346AEC6787F726AED61D477 /* CatalogueEngineTests.swift */,
 				29BBEBDA63040C7B11EF3097 /* IndexingStateTests.swift */,
 				F263B34C9E79213A2FE9C673 /* CatalogueBenchmarkTests.swift */,
 				876E3FFF9B740675DAE2BEC6 /* FixtureDirectoryServer.swift */,
@@ -533,6 +539,7 @@ F44000000000000000000001, F44000000000000000000002,
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				29FCB07C2C7205DA392F18E4 /* LibraryCleanup.swift in Sources */,
 				6E15CF2B49490F82C6C7D338 /* HomeCatalogueEngine.swift in Sources */,
 				BDD6A3CC7B188326083B83D1 /* EntertainmentCatalogue.swift in Sources */,
 				A66D34A0BF2C6FB5820B78DC /* LibraryIndex+Catalogue.swift in Sources */,
@@ -633,6 +640,7 @@ F44000000000000000000001, F44000000000000000000002,
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D0D7FB736058B7947458674A /* CatalogueEngineTests.swift in Sources */,
 				5D82B83981773C65C76DBFCB /* IndexingStateTests.swift in Sources */,
 				65C5FBF6E88474D65D6718E5 /* CatalogueBenchmarkTests.swift in Sources */,
 				561C56F02FA361F79D204FBD /* FixtureDirectoryServer.swift in Sources */,
